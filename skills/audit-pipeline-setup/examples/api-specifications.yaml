@@ -1,0 +1,108 @@
+# Domain Configuration: API Specification Review
+# ────────────────────────────────────────────────
+# Audits REST API specification documents for completeness,
+# consistency, and SDK-generation readiness.
+
+domain_name: "api-specifications"
+domain_description: "REST API specification documents that define endpoints, schemas, error codes, and behaviors for client SDK generation."
+document_noun: "spec"
+document_noun_plural: "specs"
+
+documents_dir: "docs/api-specs/"
+index_file: "docs/index.md"
+template_file: "docs/shared/_template.md"
+question_register_file: "docs/shared/_open-questions.md"
+example_prompt_file: "docs/shared/_example-prompt.md"
+pipeline_instructions_file: "docs/shared/_pipeline.md"
+audit_prompt_file: "docs/auditor/start-prompt.txt"
+runner_contract_file: "docs/auditor/runner-contract.txt"
+
+creator_agent:
+  cli: "claude"
+  cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
+  source_material_paths:
+    - "src/controllers/"           # API controller source code
+    - "src/models/"                # Request/response model definitions
+    - "docs/openapi/"              # Existing OpenAPI/Swagger schemas
+  reference_example: ""            # Set during setup — one completed spec document
+  role_additions:
+    - "Cross-reference against the OpenAPI schema to catch undocumented fields"
+    - "Check for breaking changes compared to the previous API version"
+
+auditor_agent: "claude"
+auditor_cli_command: "claude -p"
+
+audit_role: "API specification reviewer"
+optimization_target: "client SDK generation"
+optimization_sentence: "Optimize for client SDK generation. A developer reading this spec should be able to implement a correct client without reading the source code or asking the backend team."
+
+red_flags:
+  - "Undocumented query parameters (parameter exists in code but not in spec)"
+  - "'TBD', 'TODO', or empty sections in published specs"
+  - "Example JSON that doesn't parse or doesn't match the declared schema"
+  - "Missing error code enum values (just a status code without structured error body)"
+  - "Undocumented nullability on response fields"
+  - "Breaking changes without version annotation and migration guide"
+
+required_sections:
+  - name: "Endpoint definition"
+    purpose: "Method, path, authentication requirement, rate limit"
+  - name: "Request schema"
+    purpose: "All parameters (path, query, header, body) with types, required/optional, constraints"
+  - name: "Response schema"
+    purpose: "Success response body with field types, nullability, and enum values"
+  - name: "Error responses"
+    purpose: "Every documented error: status code, error code enum, message template, trigger condition"
+  - name: "Examples"
+    purpose: "At least one request/response pair per major path (happy path, common error)"
+
+quality_rules:
+  - "Every endpoint must declare its authentication method and required scopes"
+  - "Every error response must include an error code enum value and a human-readable message template"
+  - "No undocumented query parameters — if a parameter exists in code but not in the spec, add it or mark it INTERNAL-ONLY with a reason"
+  - "All example request/response bodies must be syntactically valid JSON that matches the declared schema"
+  - "Response fields must declare nullability explicitly — 'string' vs 'string | null' must be stated"
+  - "Breaking changes must be flagged with a version annotation and migration guide"
+  - "Rate limits must specify: requests per window, window duration, burst allowance, and 429 response body format"
+  - "Pagination must specify: cursor vs offset, default page size, maximum page size, sort stability guarantee"
+
+question_categories:
+  - id: "S"
+    name: "Schema uncertainty"
+    description: "Field types, nullability, enum values, or constraints that need confirmation from the implementation"
+  - id: "C"
+    name: "Compatibility"
+    description: "Breaking change impact, deprecation timeline, version support matrix"
+  - id: "R"
+    name: "Rate limiting"
+    description: "Undocumented limits, burst behavior, per-tenant vs per-user scoping"
+  - id: "A"
+    name: "Authentication"
+    description: "Required scopes, token lifetimes, service-to-service vs user-delegated flows"
+
+example_good_findings:
+  - "POST /orders response schema shows `status` as `string` but the enum values are not listed. Add: `enum: [draft, open, shipped, invoiced, cancelled]`."
+  - "The 404 response for GET /orders/{id} documents the status code but not the error body. Add: `{ \"error_code\": \"ORDER_NOT_FOUND\", \"message\": \"No order with ID {id} exists\" }`."
+  - "Query parameter `include_deleted` exists in the codebase (OrderQueryHandler.cs:47) but is not documented. Either add it to the spec or mark it INTERNAL-ONLY."
+
+example_bad_findings:
+  - "The endpoints section could be more detailed."
+  - "Consider adding more examples."
+  - "The error handling looks good overall."
+
+s5_writable_files:
+  - file: "_template.md"
+    update_trigger: "When a quality rule appeared in 3+ specs but wasn't in the template"
+  - file: "_open-questions.md"
+    update_trigger: "When an unresolved schema or compatibility question is discovered"
+
+coverage_checklist:
+  - "Happy path request/response documented with example"
+  - "All query parameters documented with types and defaults"
+  - "All error codes listed with trigger conditions"
+  - "Pagination behavior specified (if applicable)"
+  - "Rate limit documented"
+  - "Authentication scopes listed"
+  - "Breaking changes flagged (if any)"
+
+notes: "If the API uses OpenAPI/Swagger, the spec document should be the human-readable companion to the machine-readable schema, not a replacement for it. The audit checks what the schema cannot express: business rules, error trigger conditions, migration guides."

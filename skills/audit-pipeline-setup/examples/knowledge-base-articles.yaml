@@ -1,0 +1,112 @@
+# Domain Configuration: Knowledge Base Articles
+# ───────────────────────────────────────────────
+# Audits customer-facing KB articles for accuracy,
+# self-service completeness, and version correctness.
+
+domain_name: "knowledge-base-articles"
+domain_description: "Customer-facing knowledge base articles that help users resolve issues, configure features, and understand product behavior without contacting support."
+document_noun: "article"
+document_noun_plural: "articles"
+
+documents_dir: "kb/drafts/"
+index_file: "kb/index.md"
+template_file: "kb/shared/_template.md"
+question_register_file: "kb/shared/_open-questions.md"
+example_prompt_file: "kb/shared/_example-prompt.md"
+pipeline_instructions_file: "kb/shared/_pipeline.md"
+audit_prompt_file: "kb/auditor/start-prompt.txt"
+runner_contract_file: "kb/auditor/runner-contract.txt"
+
+creator_agent:
+  cli: "claude"
+  cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
+  source_material_paths:
+    - "docs/product-changelog/"    # Product release notes
+    - "docs/screenshots/"          # Current UI screenshots
+  reference_example: ""            # Set during setup — one completed KB article
+  role_additions:
+    - "Verify product names match the current official naming (not legacy or internal names)"
+    - "Check that version numbers are pinned, not 'latest' or 'recent'"
+
+auditor_agent: "claude"
+auditor_cli_command: "claude -p"
+
+audit_role: "knowledge base article reviewer"
+optimization_target: "customer self-service"
+optimization_sentence: "Optimize for customer self-service. A customer reading this article should resolve their issue without contacting support. If admin access is needed, say so upfront — don't let the customer discover it at step 7."
+
+red_flags:
+  - "Legacy or internal product names instead of current official names"
+  - "'Recent versions' or 'latest version' instead of exact version numbers"
+  - "Screenshots that don't match the current UI (menu items moved, renamed, or removed)"
+  - "Steps that require admin access when the audience is end users, without stating this upfront"
+  - "Cross-references to draft, deleted, or unpublished articles"
+  - "'Contact support' as a resolution step when a self-service solution exists"
+  - "Jargon or internal terminology without definition"
+
+required_sections:
+  - name: "Problem statement"
+    purpose: "What the customer is experiencing — symptom, error message, or behavior — in the customer's language"
+  - name: "Applies to"
+    purpose: "Product name, version range, edition (Standard/Premium/Enterprise), and module"
+  - name: "Prerequisites"
+    purpose: "What access, permissions, or configuration the customer needs before starting"
+  - name: "Solution steps"
+    purpose: "Ordered steps with exact menu paths, field names, and expected outcomes after each step"
+  - name: "Verification"
+    purpose: "How the customer confirms the solution worked — what to check and what to expect"
+  - name: "Related articles"
+    purpose: "Links to related KB articles, with one-line description of when each is relevant"
+
+quality_rules:
+  - "Product names must match the current official name — not legacy names, internal code names, or abbreviations"
+  - "Version numbers must be pinned — 'Recent versions' or 'latest' is not acceptable; write the exact version range (e.g., '24.R1 and later')"
+  - "Every screenshot must have alt text describing what the user should see, so the article works even when images fail to load"
+  - "All cross-references must link to published articles — draft or deleted references must be flagged"
+  - "Solution steps must use exact menu paths as they appear in the UI, in the customer's language"
+  - "If a step requires admin access, state this in the prerequisites section — not at the step where it becomes apparent"
+  - "No 'Contact support' as a resolution unless the article explicitly states what self-service options were exhausted and why"
+  - "Conditional steps must use 'NB: skip this step if...' format — not buried in prose"
+  - "Error messages must be quoted exactly as they appear in the product, not paraphrased"
+
+question_categories:
+  - id: "P"
+    name: "Product accuracy"
+    description: "Name changes, feature availability by edition, module dependencies"
+  - id: "V"
+    name: "Version applicability"
+    description: "Which versions exhibit the problem, which have the fix, whether upgrade is a resolution"
+  - id: "U"
+    name: "UI changes"
+    description: "Screenshots or menu paths that may not match the current interface"
+  - id: "L"
+    name: "Link validity"
+    description: "Broken cross-references, moved articles, deprecated content"
+
+example_good_findings:
+  - "Step 3 says 'Navigate to Setup > Preferences' but in version 24.R2 this menu moved to 'Settings > System Preferences'. Either update the path for 24.R2+ or add a version note: 'In versions before 24.R2: Setup > Preferences. In 24.R2 and later: Settings > System Preferences.'"
+  - "The article title says 'How to configure discounts' but the Applies-to section is empty. Add: 'Applies to: Visma Net ERP, versions 23.R1 and later, Standard and Premium editions, Sales Order module.'"
+  - "Step 5 requires the user to access 'Company Settings > API Configuration' which is an admin-only screen, but the prerequisites section doesn't mention admin access. Add to prerequisites: 'You need Administrator role access. If you don't have it, ask your system administrator to perform step 5 for you.'"
+
+example_bad_findings:
+  - "The article is well-written."
+  - "Overall the steps are clear."
+  - "Consider adding more detail to the solution."
+
+s5_writable_files:
+  - file: "_template.md"
+    update_trigger: "When a quality rule appeared in 3+ articles but wasn't in the template (e.g., missing version pinning, missing prerequisites)"
+  - file: "_open-questions.md"
+    update_trigger: "When a product accuracy or version applicability question affects multiple articles"
+
+coverage_checklist:
+  - "Problem statement uses customer language (symptom, not root cause)"
+  - "Applies-to section lists product, version range, and edition"
+  - "Prerequisites list all access requirements upfront"
+  - "Every solution step has an exact menu path and expected outcome"
+  - "Verification section tells the customer what to check and what to expect"
+  - "All cross-references link to published articles"
+  - "No legacy product names or unversioned references"
+  - "Screenshots have alt text"
+
+notes: "KB articles are customer-facing — the quality bar is higher than internal documentation. Every vague step generates a support ticket, which is exactly what the article was supposed to prevent. The audit pipeline catches the vagueness systematically before publication."

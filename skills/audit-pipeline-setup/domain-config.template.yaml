@@ -1,0 +1,163 @@
+# Domain Configuration Template
+# ─────────────────────────────
+# Fill in this file to adapt the Staged Document Audit Pipeline
+# to a new document type. See blueprint/PATTERN.md for full documentation.
+#
+# After filling in this config, use it as a checklist to create
+# the actual governance files for your domain.
+
+# ── Identity ──────────────────────────────────────────────────
+
+domain_name: ""                    # e.g., "api-specifications", "runbooks", "knowledge-base"
+domain_description: ""             # One sentence: what kind of documents does this pipeline audit?
+document_noun: ""                  # What you call one document: "spec", "runbook", "article", "scenario"
+document_noun_plural: ""           # Plural form: "specs", "runbooks", "articles", "scenarios"
+
+# ── Paths ─────────────────────────────────────────────────────
+# All paths relative to the project root.
+
+documents_dir: ""                  # Where the documents live, e.g., "docs/api-specs/"
+index_file: ""                     # The tracking grid, e.g., "docs/index.md"
+template_file: ""                  # Structure rules, e.g., "docs/shared/_template.md"
+question_register_file: ""         # Open questions, e.g., "docs/shared/_open-questions.md"
+example_prompt_file: ""            # Audit format example, e.g., "docs/shared/_example-prompt.md"
+pipeline_instructions_file: ""     # Agent instructions, e.g., "docs/shared/_pipeline.md"
+audit_prompt_file: ""              # Start prompt for the auditor agent
+runner_contract_file: ""           # Execution contract for the launcher
+
+# ── Agents ────────────────────────────────────────────────────
+
+# Creator agent: who creates documents in S1.
+# Each item gets a fresh creator-agent invocation with its own context window.
+#
+# The creator reads source material, follows the template, and writes one
+# document per invocation. It also updates the index grid (S1 column + Start).
+
+creator_agent:
+  cli: "claude"                    # "claude" (recommended) | "codex"
+  cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
+  source_material_paths:           # Files/directories the creator agent should read
+    - ""                           # e.g., "src/domain/OrderEntry.cs"
+    - ""                           # e.g., "docs/api-specs/"
+  reference_example: ""            # Path to one completed document used as quality target
+                                   # e.g., "workflow/drafts/01-order-type-defaulting.md"
+  role_additions:                  # Domain-specific creator responsibilities (beyond defaults)
+    - ""                           # e.g., "Check Confluence for existing documentation on the topic"
+    - ""                           # e.g., "Cross-reference against the API changelog"
+
+# Auditor agent: who runs S2-S5 (the automated audit loop).
+# Each stage is a fresh auditor-agent invocation with its own context window.
+#
+# Option A — Claude Code (recommended)
+#   Uses `claude -p` in single-shot mode.
+#   Pros: same tool as creator, one install, strong capabilities.
+#   CLI: claude -p "prompt" --output-format json --max-turns 3
+#
+# Option B — Codex
+#   Uses `codex exec` with sandbox isolation.
+#   Pros: built-in OS-level sandbox enforcement.
+#   CLI: codex exec "prompt"
+
+auditor_agent: ""                  # "claude" | "codex"
+auditor_cli_command: ""            # e.g., "claude -p", "codex exec"
+
+# ── Audit persona ─────────────────────────────────────────────
+# These values go into the start prompt for the auditor agent.
+
+audit_role: ""                     # e.g., "API specification reviewer", "runbook QA auditor"
+optimization_target: ""            # e.g., "client SDK generation", "3am incident response", "customer self-service"
+optimization_sentence: ""          # Full sentence, e.g., "Optimize for client SDK generation — a developer
+                                   # reading this spec should implement a correct client without reading source code."
+
+# ── Red flags ─────────────────────────────────────────────────
+# What the auditor should reject on sight. List 3-7 concrete anti-patterns.
+# These go into the start prompt as rejection criteria.
+
+red_flags:
+  - ""                             # e.g., "Undocumented query parameters"
+  - ""                             # e.g., "TBD or TODO in published specs"
+  - ""                             # e.g., "Example JSON that doesn't match the declared schema"
+  - ""
+  - ""
+
+# ── Template sections ─────────────────────────────────────────
+# Required sections in every document. These define _template.md structure.
+
+required_sections:
+  - name: ""                       # e.g., "Endpoint definition"
+    purpose: ""                    # e.g., "Method, path, auth, rate limit"
+  - name: ""
+    purpose: ""
+  - name: ""
+    purpose: ""
+  - name: ""
+    purpose: ""
+  - name: ""
+    purpose: ""
+
+# ── Quality rules ─────────────────────────────────────────────
+# Mandatory rules the auditor checks. These go into _template.md.
+# Write them as imperative sentences that can be verified mechanically.
+
+quality_rules:
+  - ""                             # e.g., "Every error response must include an error code enum value"
+  - ""                             # e.g., "No undocumented query parameters"
+  - ""                             # e.g., "All example bodies must be syntactically valid JSON"
+  - ""
+  - ""
+  - ""
+
+# ── Question categories ───────────────────────────────────────
+# Types of open questions that documents can raise.
+# These define the sections in _open-questions.md.
+
+question_categories:
+  - id: ""                         # Single letter, e.g., "S"
+    name: ""                       # e.g., "Schema uncertainty"
+    description: ""                # e.g., "Field types, nullability, enum values that need confirmation"
+  - id: ""
+    name: ""
+    description: ""
+  - id: ""
+    name: ""
+    description: ""
+  - id: ""
+    name: ""
+    description: ""
+
+# ── Example findings ──────────────────────────────────────────
+# Concrete examples that teach the auditor what good and bad findings look like.
+# These go into _example-prompt.md.
+
+example_good_findings:
+  - ""                             # Specific, actionable, references exact location and fix
+  - ""
+  - ""
+
+example_bad_findings:
+  - ""                             # Vague, no specific gap, no actionable recommendation
+  - ""
+
+# ── S5 governance targets ─────────────────────────────────────
+# Which shared files S5 can update when recurring patterns are found.
+
+s5_writable_files:
+  - file: ""                       # e.g., "_template.md"
+    update_trigger: ""             # e.g., "When a quality rule appeared in 3+ documents but wasn't in the template"
+  - file: ""
+    update_trigger: ""
+
+# ── Checklist ─────────────────────────────────────────────────
+# Coverage checklist items for the quality self-check in each document.
+# These go into the template's coverage checklist section.
+
+coverage_checklist:
+  - ""                             # e.g., "Happy path documented"
+  - ""                             # e.g., "All error codes listed"
+  - ""                             # e.g., "Rate limit behavior specified"
+  - ""
+  - ""
+
+# ── Notes ─────────────────────────────────────────────────────
+
+notes: ""                          # Any domain-specific considerations for the pipeline setup

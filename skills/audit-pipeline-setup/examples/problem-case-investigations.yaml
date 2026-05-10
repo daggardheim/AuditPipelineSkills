@@ -1,0 +1,120 @@
+# Domain Configuration: Problem Case Investigations
+# ──────────────────────────────────────────────────
+# Audits Visma Net ERP problem case investigation documents
+# for completeness, fix-script safety, and customer-readiness.
+#
+# This is the most directly applicable domain for the BA team.
+# It audits the same kind of structured investigations the team
+# already does in SIGMA/Jira, but with systematic quality gates.
+
+domain_name: "problem-case-investigations"
+domain_description: "Structured investigations of ERP data issues reported via SIGMA/Jira, including root cause analysis, fix scripts, and customer instructions."
+document_noun: "investigation"
+document_noun_plural: "investigations"
+
+documents_dir: "investigations/drafts/"
+index_file: "investigations/index.md"
+template_file: "investigations/shared/_template.md"
+question_register_file: "investigations/shared/_open-questions.md"
+example_prompt_file: "investigations/shared/_example-prompt.md"
+pipeline_instructions_file: "investigations/shared/_pipeline.md"
+audit_prompt_file: "investigations/auditor/start-prompt.txt"
+runner_contract_file: "investigations/auditor/runner-contract.txt"
+
+creator_agent:
+  cli: "claude"
+  cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
+  source_material_paths:
+    - "C:/sourcecode/vnerp-erp/src/Pure/PX.Objects/SO/"  # ERP source code
+    - "C:/sourcecode/sales-order-service/"                 # NextGen service code
+  reference_example: ""            # Set during setup — one completed investigation
+  role_additions:
+    - "Query the Jira API for case details and customer description"
+    - "Check db_schema_columns in knowledge.db before writing any SQL"
+
+auditor_agent: "claude"
+auditor_cli_command: "claude -p"
+
+audit_role: "problem case investigation auditor"
+optimization_target: "safe remediation"
+optimization_sentence: "Optimize for safe remediation. A BA or developer following this investigation should be able to fix the data without causing secondary damage, and the customer should receive clear instructions they can execute independently."
+
+red_flags:
+  - "Fix scripts that touch financial ledgers (GL, AR, AP, sub-ledgers) — bookkeeping corrections must go through UI"
+  - "DELETE or UPDATE without IF EXISTS guard"
+  - "Fix script without BEGIN TRAN / COMMIT TRAN wrapping"
+  - "Production CompanyID hardcoded instead of parameterized @CompanyID"
+  - "Customer instructions that say 'we fixed it' instead of giving the customer next steps"
+  - "Missing BEFORE/AFTER verification queries in the investigation (even though Block 2 itself has mutations only)"
+  - "SELECT statements inside Block 2 (the production payload must contain mutations only)"
+
+required_sections:
+  - name: "Customer symptom"
+    purpose: "What the customer reported — the symptom, not the root cause — with exact document IDs, amounts, and error messages"
+  - name: "Root cause analysis"
+    purpose: "What went wrong, why, which code path or data state caused it, and whether it is one-time or recurring"
+  - name: "Affected records"
+    purpose: "Exact record IDs (order numbers, shipment numbers, invoice numbers) with their current vs expected state"
+  - name: "Fix script"
+    purpose: "Three-block pattern: BEFORE (verify state), FIX (mutations in transaction), AFTER (verify fix). Block 2 is the production payload."
+  - name: "Customer instructions"
+    purpose: "Step-by-step UI instructions for the customer to complete the remediation, with exact screen names and lettered sub-steps"
+  - name: "Bug filing"
+    purpose: "If root cause is a code bug: separate Bug issue, linked to problem case, with label rootcause. If not a bug, state why."
+
+quality_rules:
+  - "Fix scripts must follow the three-block pattern: BEFORE (SELECT), FIX (mutations in BEGIN TRAN/COMMIT TRAN), AFTER (SELECT)"
+  - "Block 2 (FIX) must contain mutations only — no SELECTs, no result sets, no section comment headers"
+  - "Every fix script must be dry-run tested on a copy database before posting — state which copy DB was used"
+  - "Never touch financial ledgers (GL, AR, AP) via script — all bookkeeping corrections via UI (credit memos, journal entries)"
+  - "@CompanyID must use the Odp Company Id from the Jira description, not from the copy database"
+  - "Customer instructions must use lettered sub-steps, exact screen names in the original UI language, and 'NB: skip this if...' for conditional steps"
+  - "Every DELETE must have an IF EXISTS guard to prevent '0 rows affected' confusion on production"
+  - "Root cause analysis must classify: data corruption, code bug, user error, ISV-caused, or environment issue"
+  - "If ISV-caused: ISV fixes it themselves + learns what went wrong, how to fix, and how to prevent"
+  - "Comment 1 (to support) must open by directly answering the customer's stated problem — forensic details come second"
+
+question_categories:
+  - id: "D"
+    name: "Data state"
+    description: "Which records are affected, what the correct state should be, whether additional records beyond the reported ones are impacted"
+  - id: "R"
+    name: "Root cause"
+    description: "Code path, trigger condition, whether the bug is one-time or recurring, whether a fix is already deployed"
+  - id: "I"
+    name: "Impact scope"
+    description: "How many customers, how many records, which product versions, whether it is still happening"
+  - id: "F"
+    name: "Fix validation"
+    description: "How to confirm the fix worked, what the customer should check, what monitoring to watch after the fix"
+
+example_good_findings:
+  - "The fix script DELETEs from INItemPlan but doesn't include an IF EXISTS guard. If the plan record was already cleaned up, the script would report '0 rows affected' with no warning. Add: `IF EXISTS (SELECT 1 FROM INItemPlan WHERE PlanID = @PlanID AND CompanyID = @CompanyID) BEGIN DELETE ... END ELSE PRINT 'No orphan found — already clean.'`"
+  - "Block 2 contains a SELECT statement: `SELECT @NoteID = NoteID FROM SOOrder WHERE ...`. This is a result-set-producing SELECT that violates the mutations-only rule. Replace with: `DECLARE @NoteID INT = (SELECT NoteID FROM SOOrder WHERE ...)` which resolves the value without producing a result set."
+  - "Comment 1 starts with the forensic investigation details ('We found that INRegister...') but the customer asked 'Why can't I release my shipment?' Open Comment 1 by answering that question directly: 'The shipment cannot be released because the linked inventory issue document is missing its register record.' Then add the forensic details after a section break."
+  - "Customer instructions say 'Run IN505000 (Validate Inventory)' but don't mention that this screen locks inventory records. Add: 'NB: Run IN505000 after working hours — it locks inventory records and may block other users during execution.'"
+
+example_bad_findings:
+  - "The investigation is thorough."
+  - "The fix script looks correct."
+  - "Customer instructions seem clear."
+
+s5_writable_files:
+  - file: "_template.md"
+    update_trigger: "When a fix-script pattern or customer-instruction pattern appeared in 3+ investigations but wasn't in the template"
+  - file: "_open-questions.md"
+    update_trigger: "When a data state or root cause question affects multiple open cases"
+
+coverage_checklist:
+  - "Customer symptom stated with exact document IDs and error messages"
+  - "Root cause classified (data corruption / code bug / user error / ISV-caused / environment)"
+  - "All affected records listed with current vs expected state"
+  - "Fix script follows three-block pattern with transaction guards"
+  - "Block 2 contains mutations only — no SELECTs"
+  - "Fix script dry-run tested on copy database"
+  - "Customer instructions use lettered sub-steps and exact screen names"
+  - "Bug filed (or explicit statement why no bug is needed)"
+  - "Post-fix UI instructions include warnings (e.g., IN505000 after hours)"
+  - "Comments cross-checked for consistency (no contradictions between Comment 1 and Comment 3)"
+
+notes: "This domain maps directly to the BA team's daily work. The template rules encode the investigation patterns already documented in CLAUDE.md and the ProblemCaseKnowledgeHub. The pipeline would systematically audit investigation quality before results are posted to Jira — catching missing transaction guards, ledger violations, and unclear customer instructions before they reach the customer."

@@ -1,0 +1,114 @@
+# Domain Configuration: Runbook / Playbook QA
+# ─────────────────────────────────────────────
+# Audits incident-response runbooks for completeness,
+# precision, and 3am-usability.
+
+domain_name: "runbooks"
+domain_description: "Incident-response and operational runbooks that guide engineers through diagnosis, remediation, and rollback of production issues."
+document_noun: "runbook"
+document_noun_plural: "runbooks"
+
+documents_dir: "runbooks/drafts/"
+index_file: "runbooks/index.md"
+template_file: "runbooks/shared/_template.md"
+question_register_file: "runbooks/shared/_open-questions.md"
+example_prompt_file: "runbooks/shared/_example-prompt.md"
+pipeline_instructions_file: "runbooks/shared/_pipeline.md"
+audit_prompt_file: "runbooks/auditor/start-prompt.txt"
+runner_contract_file: "runbooks/auditor/runner-contract.txt"
+
+creator_agent:
+  cli: "claude"
+  cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
+  source_material_paths:
+    - "docs/incidents/"            # Past incident reports
+    - "monitoring/dashboards/"     # Grafana/dashboard definitions
+    - "scripts/remediation/"       # Existing remediation scripts
+  reference_example: ""            # Set during setup — one completed runbook
+  role_additions:
+    - "Verify that all monitoring queries are syntactically valid"
+    - "Check that remediation commands reference real service names from the infrastructure"
+
+auditor_agent: "claude"
+auditor_cli_command: "claude -p"
+
+audit_role: "runbook QA auditor"
+optimization_target: "3am incident response"
+optimization_sentence: "Optimize for 3am incident response. A sleep-deprived engineer following this runbook should not need to make judgment calls, search for information, or have tribal knowledge."
+
+red_flags:
+  - "'Restart the service' without specifying which service (exact systemd unit, container name, or ECS task)"
+  - "'Check the dashboard' without specifying which dashboard, which metric, and what threshold"
+  - "Steps that require access not listed in the prerequisites"
+  - "Remediation without a rollback procedure"
+  - "Diagnostic steps without expected output for both 'problem confirmed' and 'problem not found'"
+  - "'Ask the team' or 'escalate to oncall' without specifying which team, which Slack channel, which PagerDuty service"
+
+required_sections:
+  - name: "Trigger condition"
+    purpose: "What alert, symptom, or customer report triggers this runbook — include alert name, metric, threshold"
+  - name: "Affected systems"
+    purpose: "Which services, databases, queues, or external dependencies are involved"
+  - name: "Prerequisites"
+    purpose: "Access requirements, tools, VPN, credentials needed before starting"
+  - name: "Diagnostic steps"
+    purpose: "Ordered steps to confirm the problem, with expected output for both positive and negative cases"
+  - name: "Remediation steps"
+    purpose: "Ordered steps to fix the problem, with exact commands, time estimates, and verification"
+  - name: "Rollback procedure"
+    purpose: "How to undo the remediation if it makes things worse"
+  - name: "Escalation path"
+    purpose: "When to escalate, to whom, which channel, what information to include"
+  - name: "Monitoring queries"
+    purpose: "Exact queries or dashboard links to confirm the issue is resolved"
+
+quality_rules:
+  - "Every remediation step must name the exact command, service, or UI path — no 'restart the service' without the unit name"
+  - "Every diagnostic step must include expected output for both 'problem confirmed' and 'problem not present'"
+  - "Time estimates must be included for each remediation step"
+  - "No assumed knowledge — if a step requires access to a specific system, include the access request URL or contact"
+  - "Rollback procedures must be tested and include verification steps"
+  - "Monitoring queries must be copy-pasteable — no 'check the Grafana dashboard' without the exact URL and metric name"
+  - "Escalation paths must include: team name, Slack channel, PagerDuty service, and what information to pass along"
+  - "Every command must specify which host to run it on — not just the command itself"
+
+question_categories:
+  - id: "A"
+    name: "Access requirements"
+    description: "Credentials, VPN, permissions, or approval chains needed to execute the runbook"
+  - id: "T"
+    name: "Tool dependencies"
+    description: "CLI tools, version requirements, platform-specific installation, or internal tools that may not be on every engineer's machine"
+  - id: "E"
+    name: "Environment specifics"
+    description: "Which cluster, region, account, or namespace — anything that differs between staging and production"
+  - id: "V"
+    name: "Verification gaps"
+    description: "How to confirm the fix worked, what metrics to watch, how long to wait before declaring success"
+
+example_good_findings:
+  - "Step 4 says 'check the dashboard for anomalies' but doesn't specify which dashboard, which metric, or what threshold constitutes an anomaly. Replace with: 'Open Grafana board api-latency (grafana.internal/d/api-latency). Check p99 latency for the order-service. If > 500ms for > 5 minutes, proceed to step 5.'"
+  - "The rollback procedure says 'revert the deployment' but doesn't specify the command. Replace with: `kubectl rollout undo deployment/order-service -n production` followed by verification: `kubectl rollout status deployment/order-service -n production` (expected: 'deployment successfully rolled out')."
+  - "Step 2 requires access to the production database but the prerequisites section only lists 'VPN access'. Add: 'Production DB read access via 1Password vault ops-production, item postgres-readonly. Request access at: access.internal/request?system=prod-db&role=readonly.'"
+
+example_bad_findings:
+  - "Consider adding more monitoring."
+  - "The runbook could be more detailed."
+  - "The escalation section looks reasonable."
+
+s5_writable_files:
+  - file: "_template.md"
+    update_trigger: "When a quality rule appeared in 3+ runbooks but wasn't in the template (e.g., missing rollback verification)"
+  - file: "_open-questions.md"
+    update_trigger: "When an access requirement or tool dependency is discovered that affects multiple runbooks"
+
+coverage_checklist:
+  - "Trigger condition is specific and includes alert name/metric/threshold"
+  - "All access requirements listed in prerequisites"
+  - "Every diagnostic step has expected output for both outcomes"
+  - "Every remediation step has an exact command and time estimate"
+  - "Rollback procedure is documented and tested"
+  - "Escalation path includes team, channel, and required context"
+  - "Post-resolution monitoring queries are copy-pasteable"
+
+notes: "Runbooks decay fast. Consider scheduling a quarterly re-audit pass to catch stale hostnames, deprecated tools, and changed access procedures. The pipeline's governance propagation (S5) helps catch systematic drift but can't replace periodic human verification of access paths."

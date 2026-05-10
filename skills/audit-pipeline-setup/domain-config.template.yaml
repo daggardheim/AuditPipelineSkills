@@ -26,42 +26,46 @@ audit_prompt_file: ""              # Start prompt for the auditor agent
 runner_contract_file: ""           # Execution contract for the launcher
 
 # ── Agents ────────────────────────────────────────────────────
+# Two agent roles: creator (S1, S3) and auditor (S2, S4, S5).
+# The setup skill uses this section + file paths above to generate
+# _agent-permissions.yaml, which the orchestrator reads at runtime.
 
-# Creator agent: who creates documents (S1) and rewrites them (S3).
-# Each task gets a fresh creator-agent invocation with its own context window.
-#
-# S1: The creator reads source material, follows the template, and writes one
-# document per invocation. It also updates the index grid (S1 column + Start).
-# S3: The creator rewrites the document to fix S2's findings, using source
-# material access to verify facts (menu paths, versions, column names).
+agents:
+  creator:
+    # Who creates documents (S1) and rewrites them to fix findings (S3).
+    # Each task gets a fresh context window.
+    #
+    # S1: reads source material, follows the template, writes one document.
+    # S3: rewrites the document to fix S2 findings, verifying facts against
+    #     source material (same access as S1).
+    cli: ""                            # "claude" (recommended) | "codex"
+    cli_command: ""                    # e.g., 'claude -p "{prompt}" --output-format json --max-turns 10'
+                                       # e.g., 'codex exec "{prompt}"'
+    max_turns: 10                      # How many tool-call rounds the creator needs.
+                                       # Default 10 for source code exploration; lower for simpler domains.
+    source_material_paths:             # Files/directories the creator reads to write accurate documents.
+                                       # These become allowed_read entries in _agent-permissions.yaml.
+      - ""                             # e.g., "src/domain/OrderEntry.cs"
+      - ""                             # e.g., "docs/api-specs/"
+    reference_example: ""              # Path to one completed document used as quality target.
+                                       # e.g., "runbooks/completed/example-runbook.md"
+    role_additions:                    # Domain-specific creator responsibilities (beyond defaults).
+      - ""                             # e.g., "Check Confluence for existing documentation on the topic"
+      - ""                             # e.g., "Cross-reference against the API changelog"
 
-creator_agent:
-  cli: "claude"                    # "claude" (recommended) | "codex"
-  cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
-  source_material_paths:           # Files/directories the creator agent should read
-    - ""                           # e.g., "src/domain/OrderEntry.cs"
-    - ""                           # e.g., "docs/api-specs/"
-  reference_example: ""            # Path to one completed document used as quality target
-                                   # e.g., "workflow/drafts/01-order-type-defaulting.md"
-  role_additions:                  # Domain-specific creator responsibilities (beyond defaults)
-    - ""                           # e.g., "Check Confluence for existing documentation on the topic"
-    - ""                           # e.g., "Cross-reference against the API changelog"
-
-# Auditor agent: who runs S2, S4, S5 (audit, confirm, governance).
-# Each stage is a fresh auditor-agent invocation with its own context window.
-#
-# Option A — Claude Code (recommended)
-#   Uses `claude -p` in single-shot mode.
-#   Pros: same tool as creator, one install, strong capabilities.
-#   CLI: claude -p "prompt" --output-format json --max-turns 3
-#
-# Option B — Codex
-#   Uses `codex exec` with sandbox isolation.
-#   Pros: built-in OS-level sandbox enforcement.
-#   CLI: codex exec "prompt"
-
-auditor_agent: ""                  # "claude" | "codex"
-auditor_cli_command: ""            # e.g., "claude -p", "codex exec"
+  auditor:
+    # Who runs S2 (audit), S4 (confirm), S5 (governance propagation).
+    # Each stage is a fresh context window.
+    #
+    # Claude Code: recommended. Same tool as creator, one install.
+    #   CLI: claude -p "{prompt}" --output-format json --max-turns 3
+    #
+    # Codex: alternative. Built-in OS-level sandbox enforcement.
+    #   CLI: codex exec "{prompt}"
+    cli: ""                            # "claude" | "codex"
+    cli_command: ""                    # e.g., 'claude -p "{prompt}" --output-format json --max-turns 3'
+                                       # e.g., 'codex exec "{prompt}"'
+    max_turns: 3                       # Auditor needs fewer turns (no source material exploration).
 
 # ── Audit persona ─────────────────────────────────────────────
 # These values go into the start prompt for the auditor agent.

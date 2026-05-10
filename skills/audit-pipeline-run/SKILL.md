@@ -131,6 +131,45 @@ Read `tools/audit/audit-log.jsonl` and look for:
 | Same `finding_signatures` appearing in 5+ documents | Recurring pattern not yet propagated to template |
 | All documents completing in S2 with `decision: stop` | Audit prompt may be too lenient — not finding real issues |
 
+## Step 6 — Handle permission failures
+
+When a stage fails because the agent couldn't complete its task — a tool was blocked, the sandbox prevented access, or the agent hit max-turns without producing output — this is a setup problem, not an agent problem.
+
+### The failure flow
+
+**Step 1 — Stop.** The orchestrator stops the entire pipeline loop. The failing document is marked `blocked` in `loop-state.json` with the error details. Previously completed documents are unaffected.
+
+**Step 2 — Log.** The orchestrator writes a failure entry to `audit-log.jsonl`:
+
+```json
+{
+  "timestamp": "2026-05-10T14:32:00Z",
+  "document": "path/to/document.md",
+  "stage": "S2",
+  "agent": "codex",
+  "status": "failed",
+  "error": "Agent exited with non-zero status. Sandbox prevented write attempt.",
+  "allowed_tools": ["Read", "Glob"],
+  "allowed_write": [],
+  "exit_code": 1
+}
+```
+
+**Step 3 — Analyze.** Read the failure log entry and determine the likely cause:
+
+| Log signal | Likely cause | Suggested fix |
+|---|---|---|
+| Non-zero exit + permission/sandbox error | Agent needed a tool it didn't have | Add the tool to `allowed_tools` for that stage in `_agent-permissions.yaml` |
+| Agent completed but no JSON output | Prompt unclear about output format | Check prompt assembly in the orchestrator |
+| Agent completed but `decision: block` | Document has a real problem | Not a permission issue — resolve the block reason manually |
+| Agent timed out (max-turns reached) | Source material paths too broad | Narrow `allowed_read` paths or increase `max_turns` in `_agent-permissions.yaml` |
+
+**Step 4 — Explain.** Tell the user in plain language what went wrong and what to fix. Example:
+
+> "The pipeline stopped at S2 for document 07-restart-procedure.md. The Codex auditor tried to write a file but it only has read access. This usually means either: (a) the stage should have write access — edit `_agent-permissions.yaml` and add Write to S2's `allowed_tools`, or (b) the prompt is asking the auditor to do something it shouldn't — check the audit prompt for instructions that imply editing."
+
+**Step 5 — Ask.** Ask the user: "Do you want to fix the permissions config and restart the pipeline?" The pipeline resumes from the failed stage — completed stages are preserved in `loop-state.json`.
+
 ## Troubleshooting
 
 ### Creator agent produces no output file
@@ -188,3 +227,26 @@ Common causes:
 - Documents are too large (the orchestrator truncates at 18,000 characters — check if truncation is losing important content)
 - The audit prompt is asking for comprehensive analysis when it should ask for actionable findings only
 - S4 is running a full re-audit instead of a narrow acceptance check
+
+### Agent runs but is missing tools
+
+The agent completed but couldn't read or write files it needed.
+- Check `_agent-permissions.yaml` for the failing stage. Compare `allowed_tools` against what the stage needs.
+- Creator stages (S1, S3, S5) need: `[Read, Write, Edit, Glob]`
+- Auditor read-only stages (S2, S4) need: `[Read, Glob]`
+- If the agent is Claude, check that `--allowedTools` in the CLI command matches the YAML.
+- If the agent is Codex, check that `--sandbox read-only` is only set for S2 and S4.
+
+### Agent can't find source material
+
+The creator agent in S1 or S3 reports it can't find files referenced in the prompt.
+- Check `allowed_read` paths in `_agent-permissions.yaml` for S1/S3. The source material paths must match what exists on disk.
+- Glob patterns (e.g., `src/**/*.cs`) are allowed. Verify the pattern matches actual files: `ls src/**/*.cs`
+- If paths changed since setup, update `_agent-permissions.yaml` and restart.
+
+### Permissions file missing or incomplete
+
+The orchestrator can't find `_agent-permissions.yaml` or it's missing stages.
+- Re-run `audit-pipeline-setup` to regenerate the file.
+- Or create it manually following the reference implementation at `reference/runbooks/_agent-permissions.yaml`.
+- Every pipeline must have entries for all 5 stages (S1-S5).

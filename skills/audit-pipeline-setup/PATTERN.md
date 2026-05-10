@@ -402,6 +402,7 @@ These mistakes were discovered in the reference implementation's first run (114 
 | **S5 gate blocking governance** | S5 was gated on `rewrite_occurred_any` from S2-S4. Since rewrites never happened (sandbox bug), S5 never updated shared governance files. | S5 has two independent duties: (1) scenario spot-check (gated on rewrite), (2) governance propagation (always runs). The gate was removed for duty 2. |
 | **Recurring patterns never propagated** | Five patterns appeared in 10+ documents but were never added to the template: `???` placeholders, missing ETag steps, coverage overstatement, conditional assertions, done-but-blocked status. | S5 must always check for recurring patterns regardless of whether the current document was rewritten. These patterns are now in the template. |
 | **No resolution tracking** | The schema had no way to measure whether findings were actually fixed between stages. | Added `findings_resolved` field. S3/S4 count how many prior-stage `finding_signatures` are no longer present. |
+| **No permissions configured** | The orchestrator launched agents without `--allowedTools` or `--sandbox` flags. Every stage had full tool access — auditor stages could write files, creator stages could modify governance files. | Generate `_agent-permissions.yaml` during setup. The orchestrator reads it and applies `--allowedTools` (Claude) or `--sandbox` (Codex) per stage. |
 
 ---
 
@@ -442,7 +443,43 @@ Common combinations:
 - **Claude + Claude** — simplest. One tool, one API key.
 - **Claude + Codex** — when OS-level sandbox enforcement is wanted for audit stages.
 
-To configure agents, set `creator_agent` and `auditor_agent` sections in the domain config. The orchestrator dispatches: S1/S3 → creator agent, S2/S4/S5 → auditor agent.
+To configure agents, set the `agents` section in the domain config. During setup, the skill generates `_agent-permissions.yaml` from this config, which the orchestrator reads at runtime to dispatch agents with the correct tool restrictions. S1/S3 → creator agent, S2/S4/S5 → auditor agent.
+
+### Agent permissions
+
+The pipeline enforces file-level permissions through a generated `_agent-permissions.yaml` file. This file is created during setup (alongside the template, pipeline instructions, and other governance files) and consumed by the orchestrator at runtime.
+
+**What the permissions file contains:**
+
+| Section | Purpose |
+|---------|---------|
+| `agents` | Defines creator and auditor roles: which CLI tool, what command, how many turns |
+| `stages` | Per-stage entry: role, allowed tools, allowed read paths, allowed write paths |
+
+**How the orchestrator enforces permissions:**
+
+| Agent | Tool-level enforcement | Path-level enforcement |
+|-------|----------------------|----------------------|
+| Claude Code | `--allowedTools` CLI flag (e.g., `--allowedTools Read,Glob` for read-only stages) | Allowed paths injected into the prompt |
+| Codex | `--sandbox read-only` for audit stages, no sandbox for write stages | Allowed paths injected into the prompt |
+
+**Design rationale:**
+
+- Everything is known at setup time. The file scopes, agent types, and tool requirements are all defined when the pipeline is created. No runtime guessing.
+- If the setup is wrong, the agent physically cannot complete its task (the tools to exceed its scope don't exist). The orchestrator detects the failure, stops the pipeline, and explains what to fix.
+- The permissions file is the single source of truth. The orchestrator reads it. The prompt includes it. If permissions are wrong, you fix one file.
+
+**Failure handling:**
+
+When a stage fails because the agent couldn't do what it needed (tool blocked, sandbox prevented access):
+
+1. **Stop** — the orchestrator stops the entire pipeline loop. The failing document is marked `blocked` in `loop-state.json`. Completed documents are unaffected.
+2. **Log** — a failure entry is written to `audit-log.jsonl` with the stage, agent, error, and what was allowed.
+3. **Analyze** — the `audit-pipeline-run` skill reads the log and determines the likely cause.
+4. **Explain** — the skill tells the user in plain language what went wrong and what to fix in `_agent-permissions.yaml`.
+5. **Ask** — the skill asks: "Do you want to fix the permissions config and restart the pipeline?"
+
+The pipeline resumes from the failed stage (completed stages are tracked in `loop-state.json`).
 
 ### Parallel document processing
 

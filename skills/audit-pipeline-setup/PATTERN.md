@@ -75,7 +75,7 @@ The orchestrator builds an S1 prompt for each fresh creator-agent invocation. Th
 | Reference example | Concrete style and depth calibration | Full content of one designated reference document embedded in prompt |
 | Source material | Domain knowledge the creator agent reads | File paths listed in prompt; agent reads via tool calls |
 | Open questions | Avoid re-raising already-tracked questions | Full content of `_open-questions.md` embedded in prompt |
-| Role customizations | Domain-specific creator responsibilities | From `creator_agent.role_additions` in domain config |
+| Role customizations | Domain-specific creator responsibilities | From `agents.creator.role_additions` in domain config |
 | Output contract | What files to write, what index columns to update | Standard: write document to drafts dir, set S1=done and Start timestamp in index |
 
 **Design rationale — embed vs. point-to:**

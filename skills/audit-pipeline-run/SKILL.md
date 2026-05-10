@@ -198,7 +198,7 @@ The orchestrator invokes the configured agent CLI. If the command fails:
 - **Claude**: Ensure Claude Code CLI is installed and `claude` is on PATH
 - **Codex**: Ensure Codex is installed: `npm install -g @openai/codex`
 
-Check the `creator_agent.cli_command` and `auditor_cli_command` values in your domain config.
+Check the `agents.creator.cli_command` and `agents.auditor.cli_command` values in your domain config.
 
 ### S3 rewrites are inaccurate despite source material access
 

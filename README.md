@@ -43,6 +43,7 @@ A complete set of generated output files for the **runbooks** domain is included
 | `_pipeline.md` | Stage instructions for both agent roles |
 | `_s1-prompt-template.md` | How the orchestrator assembles the S1/S3 creator prompt |
 | `runner-contract.txt` | Execution contract for the orchestrator |
+| `_agent-permissions.yaml` | Per-stage tool restrictions and file scope for Claude and Codex agents |
 | `index.md` | Document tracking grid with example rows |
 
 Browse these files to understand what a fully set up pipeline looks like before running the setup skill on your own project.

@@ -37,14 +37,23 @@ This file defines the stage behavior for both the creator agent (S1, S3) and the
 - One row at a time. Never work on more than one row per tick.
 - If no row is ready, do nothing and wait for the next tick.
 
-## Sandbox mode
+## Permissions
 
-The orchestrator sets sandbox mode per stage:
+The orchestrator reads `_agent-permissions.yaml` to enforce tool and file restrictions per stage:
 
-- S2, S4: read-only (audit/confirm only, no file edits)
-- S1, S3, S5: write access (create/rewrite/propagate)
+- S2, S4: `allowed_tools: [Read, Glob]` — read-only, cannot write files
+- S1, S3: `allowed_tools: [Read, Write, Edit, Glob]` — full access for document creation/rewriting
+- S5: `allowed_tools: [Read, Write, Edit, Glob]` — write access for governance propagation
+
+Enforcement mechanism depends on the agent:
+- Claude Code: `--allowedTools` CLI flag
+- Codex: `--sandbox read-only` for read-only stages
+
+See `_agent-permissions.yaml` for the exact file paths allowed per stage.
 
 ## File scope
+
+> The file scopes below are documented here for human readability. The machine-readable source of truth is `_agent-permissions.yaml`.
 
 ### S1
 

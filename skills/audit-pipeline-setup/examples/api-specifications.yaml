@@ -17,20 +17,24 @@ pipeline_instructions_file: "docs/shared/_pipeline.md"
 audit_prompt_file: "docs/auditor/start-prompt.txt"
 runner_contract_file: "docs/auditor/runner-contract.txt"
 
-creator_agent:
-  cli: "claude"
-  cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
-  source_material_paths:
-    - "src/controllers/"           # API controller source code
-    - "src/models/"                # Request/response model definitions
-    - "docs/openapi/"              # Existing OpenAPI/Swagger schemas
-  reference_example: ""            # Set during setup — one completed spec document
-  role_additions:
-    - "Cross-reference against the OpenAPI schema to catch undocumented fields"
-    - "Check for breaking changes compared to the previous API version"
+agents:
+  creator:
+    cli: "claude"
+    cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
+    max_turns: 10
+    source_material_paths:
+      - "src/controllers/"           # API controller source code
+      - "src/models/"                # Request/response model definitions
+      - "docs/openapi/"              # Existing OpenAPI/Swagger schemas
+    reference_example: ""            # Set during setup — one completed spec document
+    role_additions:
+      - "Cross-reference against the OpenAPI schema to catch undocumented fields"
+      - "Check for breaking changes compared to the previous API version"
 
-auditor_agent: "claude"                # S2, S4, S5
-auditor_cli_command: "claude -p"
+  auditor:
+    cli: "claude"
+    cli_command: 'claude -p "{prompt}" --output-format json --max-turns 3'
+    max_turns: 3
 
 audit_role: "API specification reviewer"
 optimization_target: "client SDK generation"

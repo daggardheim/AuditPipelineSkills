@@ -17,20 +17,24 @@ pipeline_instructions_file: "runbooks/shared/_pipeline.md"
 audit_prompt_file: "runbooks/auditor/start-prompt.txt"
 runner_contract_file: "runbooks/auditor/runner-contract.txt"
 
-creator_agent:
-  cli: "claude"
-  cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
-  source_material_paths:
-    - "docs/incidents/"            # Past incident reports
-    - "monitoring/dashboards/"     # Grafana/dashboard definitions
-    - "scripts/remediation/"       # Existing remediation scripts
-  reference_example: ""            # Set during setup — one completed runbook
-  role_additions:
-    - "Verify that all monitoring queries are syntactically valid"
-    - "Check that remediation commands reference real service names from the infrastructure"
+agents:
+  creator:
+    cli: "claude"
+    cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
+    max_turns: 10
+    source_material_paths:
+      - "docs/incidents/"            # Past incident reports
+      - "monitoring/dashboards/"     # Grafana/dashboard definitions
+      - "scripts/remediation/"       # Existing remediation scripts
+    reference_example: ""            # Set during setup — one completed runbook
+    role_additions:
+      - "Verify that all monitoring queries are syntactically valid"
+      - "Check that remediation commands reference real service names from the infrastructure"
 
-auditor_agent: "claude"                # S2, S4, S5
-auditor_cli_command: "claude -p"
+  auditor:
+    cli: "claude"
+    cli_command: 'claude -p "{prompt}" --output-format json --max-turns 3'
+    max_turns: 3
 
 audit_role: "runbook QA auditor"
 optimization_target: "3am incident response"

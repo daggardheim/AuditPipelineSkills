@@ -21,19 +21,23 @@ pipeline_instructions_file: "investigations/shared/_pipeline.md"
 audit_prompt_file: "investigations/auditor/start-prompt.txt"
 runner_contract_file: "investigations/auditor/runner-contract.txt"
 
-creator_agent:
-  cli: "claude"
-  cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
-  source_material_paths:
-    - "C:/sourcecode/vnerp-erp/src/Pure/PX.Objects/SO/"  # ERP source code
-    - "C:/sourcecode/sales-order-service/"                 # NextGen service code
-  reference_example: ""            # Set during setup — one completed investigation
-  role_additions:
-    - "Query the Jira API for case details and customer description"
-    - "Check db_schema_columns in knowledge.db before writing any SQL"
+agents:
+  creator:
+    cli: "claude"
+    cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
+    max_turns: 10
+    source_material_paths:
+      - "C:/sourcecode/vnerp-erp/src/Pure/PX.Objects/SO/"  # ERP source code
+      - "C:/sourcecode/sales-order-service/"                 # NextGen service code
+    reference_example: ""            # Set during setup — one completed investigation
+    role_additions:
+      - "Query the Jira API for case details and customer description"
+      - "Check db_schema_columns in knowledge.db before writing any SQL"
 
-auditor_agent: "claude"                # S2, S4, S5
-auditor_cli_command: "claude -p"
+  auditor:
+    cli: "claude"
+    cli_command: 'claude -p "{prompt}" --output-format json --max-turns 3'
+    max_turns: 3
 
 audit_role: "problem case investigation auditor"
 optimization_target: "safe remediation"

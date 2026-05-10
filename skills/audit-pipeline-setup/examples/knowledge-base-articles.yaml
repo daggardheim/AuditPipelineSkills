@@ -17,19 +17,23 @@ pipeline_instructions_file: "kb/shared/_pipeline.md"
 audit_prompt_file: "kb/auditor/start-prompt.txt"
 runner_contract_file: "kb/auditor/runner-contract.txt"
 
-creator_agent:
-  cli: "claude"
-  cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
-  source_material_paths:
-    - "docs/product-changelog/"    # Product release notes
-    - "docs/screenshots/"          # Current UI screenshots
-  reference_example: ""            # Set during setup — one completed KB article
-  role_additions:
-    - "Verify product names match the current official naming (not legacy or internal names)"
-    - "Check that version numbers are pinned, not 'latest' or 'recent'"
+agents:
+  creator:
+    cli: "claude"
+    cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
+    max_turns: 10
+    source_material_paths:
+      - "docs/product-changelog/"    # Product release notes
+      - "docs/screenshots/"          # Current UI screenshots
+    reference_example: ""            # Set during setup — one completed KB article
+    role_additions:
+      - "Verify product names match the current official naming (not legacy or internal names)"
+      - "Check that version numbers are pinned, not 'latest' or 'recent'"
 
-auditor_agent: "claude"                # S2, S4, S5
-auditor_cli_command: "claude -p"
+  auditor:
+    cli: "claude"
+    cli_command: 'claude -p "{prompt}" --output-format json --max-turns 3'
+    max_turns: 3
 
 audit_role: "knowledge base article reviewer"
 optimization_target: "customer self-service"

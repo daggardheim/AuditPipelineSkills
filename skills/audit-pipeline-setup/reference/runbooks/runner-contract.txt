@@ -1,0 +1,68 @@
+# Runner Contract
+
+This document defines the execution contract for the orchestrator that launches agent invocations on the runbook pipeline.
+
+It is not the prompt itself. It is the orchestration contract that the wrapper script (audit_loop.py) must follow.
+
+## Purpose
+
+Run the S1-S5 loop without human intervention while keeping each stage isolated in a fresh context window.
+
+## Inputs
+
+- Repository root
+- runbooks/index.md
+- The current row number or the ability to discover the next eligible row
+- The active row's runbook file (for S2-S5) or output path (for S1)
+- The allowlisted shared files for the current stage
+- The stage-specific prompt for the current agent invocation
+
+## Agent dispatch
+
+The orchestrator dispatches two agent configurations:
+
+| Stage | Agent | CLI command |
+|-------|-------|-------------|
+| S1 | Creator | claude -p "{prompt}" --output-format json --max-turns 10 |
+| S2 | Auditor | claude -p "{prompt}" --output-format json --max-turns 3 |
+| S3 | Creator | claude -p "{prompt}" --output-format json --max-turns 10 |
+| S4 | Auditor | claude -p "{prompt}" --output-format json --max-turns 3 |
+| S5 | Auditor | claude -p "{prompt}" --output-format json --max-turns 3 |
+
+## Required behavior
+
+1. Read runbooks/index.md.
+2. Find the first eligible row:
+   - S1 = todo → launch creator agent
+   - S1 = done, S2 = not-started → launch auditor agent for S2
+   - S3 = todo → launch creator agent for S3
+   - And so on through S5
+3. If no row is eligible, stop and wait for the next scheduled tick.
+4. For the eligible row, determine the active stage.
+5. Launch exactly one agent invocation for that stage.
+6. Pass only the files allowed for that stage.
+7. Use a fresh context for every stage invocation.
+8. Do not rely on prior chat history for continuity.
+9. Wait for the stage to finish.
+10. Persist the stage result to the grid and state files.
+11. For S5, run the post-run validator before closing the row.
+12. If the validator passes, finalize the row, write End and Total, and unlock the next row.
+13. If the validator fails, mark the row blocked and stop that row.
+14. Repeat until the row reaches S5 validated or is blocked.
+
+## Sandbox mode
+
+The orchestrator must set sandbox mode per stage:
+
+- S2, S4: read-only (audit/confirm only, no file edits)
+- S1, S3, S5: write access (agent needs to create/edit files)
+
+## State files
+
+- runbooks/index.md — document tracking grid (source of truth for stage progression)
+- tools/audit/loop-state.json — per-document state (completed stages, quality trajectory, blocked status)
+- tools/audit/audit-log.jsonl — append-only event log (one JSON line per stage invocation)
+
+## Completion gate
+
+A row is complete when S5 passes the post-run validator. The validator confirms that the runbook file, index.md, and _open-questions.md are consistent before the row is closed and the next row is unlocked.

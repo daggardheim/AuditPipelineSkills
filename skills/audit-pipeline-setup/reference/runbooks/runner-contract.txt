@@ -19,15 +19,19 @@ Run the S1-S5 loop without human intervention while keeping each stage isolated 
 
 ## Agent dispatch
 
-The orchestrator dispatches two agent configurations:
+The orchestrator reads `_agent-permissions.yaml` to determine the agent, tools, and file scope per stage. The table below shows a Claude (creator) + Codex (auditor) configuration:
 
 | Stage | Agent | CLI command |
 |-------|-------|-------------|
-| S1 | Creator | claude -p "{prompt}" --output-format json --max-turns 10 |
-| S2 | Auditor | claude -p "{prompt}" --output-format json --max-turns 3 |
-| S3 | Creator | claude -p "{prompt}" --output-format json --max-turns 10 |
-| S4 | Auditor | claude -p "{prompt}" --output-format json --max-turns 3 |
-| S5 | Auditor | claude -p "{prompt}" --output-format json --max-turns 3 |
+| S1 | Creator (Claude) | claude -p "{prompt}" --output-format json --max-turns 10 --allowedTools Read,Write,Edit,Glob |
+| S2 | Auditor (Codex) | codex exec "{prompt}" --sandbox read-only |
+| S3 | Creator (Claude) | claude -p "{prompt}" --output-format json --max-turns 10 --allowedTools Read,Write,Edit,Glob |
+| S4 | Auditor (Codex) | codex exec "{prompt}" --sandbox read-only |
+| S5 | Auditor (Codex) | codex exec "{prompt}" |
+
+For a Claude-only setup, replace the Codex commands with:
+- S2, S4: claude -p "{prompt}" --output-format json --max-turns 3 --allowedTools Read,Glob
+- S5: claude -p "{prompt}" --output-format json --max-turns 3 --allowedTools Read,Write,Edit,Glob
 
 ## Required behavior
 
@@ -50,12 +54,23 @@ The orchestrator dispatches two agent configurations:
 13. If the validator fails, mark the row blocked and stop that row.
 14. Repeat until the row reaches S5 validated or is blocked.
 
-## Sandbox mode
+## Permissions enforcement
 
-The orchestrator must set sandbox mode per stage:
+The orchestrator reads `_agent-permissions.yaml` at startup. For each stage, it:
 
-- S2, S4: read-only (audit/confirm only, no file edits)
-- S1, S3, S5: write access (agent needs to create/edit files)
+1. Looks up the stage entry to find the role (creator or auditor).
+2. Gets the CLI command from the `agents` section for that role.
+3. Appends tool restrictions:
+   - Claude: adds `--allowedTools` flag with the tools from `allowed_tools`.
+   - Codex: adds `--sandbox read-only` if `allowed_write` is empty.
+4. Injects the `allowed_read` and `allowed_write` paths into the prompt text.
+5. Replaces `{document}` in paths with the actual filename for the current row.
+
+If a stage fails (non-zero exit, no JSON output, or timeout):
+1. Stop the pipeline loop.
+2. Mark the document as blocked in `loop-state.json`.
+3. Write a failure entry to `audit-log.jsonl` with stage, agent, error, and allowed permissions.
+4. Exit. The `audit-pipeline-run` skill analyzes the log and explains the fix to the user.
 
 ## State files
 

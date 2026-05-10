@@ -157,6 +157,28 @@ From the completed config, generate the actual files:
 | Pipeline instructions (standard) | `_pipeline.md` |
 | S1 prompt template (from creator config) | `_s1-prompt-template.md` |
 | Runner contract (standard) | `runner-contract.txt` |
+| `agents` + paths + `s5_writable_files` | `_agent-permissions.yaml` |
+
+#### Generating `_agent-permissions.yaml`
+
+Build the permissions file from the domain config:
+
+1. Copy the `agents` section (creator and auditor CLI config) directly.
+2. For each stage, set `allowed_tools`:
+   - Read-only stages (S2, S4): `[Read, Glob]`
+   - Write stages (S1, S3, S5): `[Read, Write, Edit, Glob]`
+3. For each stage, build `allowed_read` from:
+   - The governance file paths (`template_file`, `question_register_file`, `example_prompt_file`, `index_file`) — based on which files that stage needs
+   - `agents.creator.source_material_paths` — for S1 and S3 only
+   - `agents.creator.reference_example` — for S1 and S3 only
+4. For each stage, build `allowed_write` from:
+   - S1: `documents_dir/{document}`, `index_file`
+   - S2, S4: `[]` (empty — read-only)
+   - S3: current document path, `index_file`
+   - S5: `s5_writable_files` entries, `index_file`
+5. Use `{document}` as placeholder in paths — the orchestrator replaces it at runtime.
+
+See the reference implementation at `reference/runbooks/_agent-permissions.yaml` for a complete example.
 
 ### 8. Set up the orchestrator
 
@@ -179,6 +201,12 @@ Before running, verify:
 - S1 prompt includes template, reference example, and source material paths
 - The orchestrator path constants match the actual folder structure
 - All governance files are consistent with each other
+- `_agent-permissions.yaml` exists and has entries for all 5 stages
+- Each stage's `allowed_read` and `allowed_write` match the file scope in `_pipeline.md`
+- Read-only stages (S2, S4) have `allowed_write: []` and `allowed_tools` does not include Write or Edit
+- S5 `allowed_write` matches the `s5_writable_files` entries in the domain config
+- Creator stages (S1, S3) include `source_material_paths` in their `allowed_read`
+- The `agents` section CLI commands match the agent choices from Step 4
 
 ## Anti-patterns to avoid
 

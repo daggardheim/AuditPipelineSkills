@@ -5,7 +5,7 @@ description: Run or resume an existing staged document audit pipeline. Use when 
 
 # Run a Staged Document Audit Pipeline
 
-Execute, monitor, or resume an existing S1-S5 pipeline. The orchestrator handles both document creation (S1, creator agent) and document auditing (S2-S5, auditor agent) in a unified loop — each stage gets a fresh agent context window.
+Execute, monitor, or resume an existing S1-S5 pipeline. The orchestrator dispatches two agent roles: the **creator agent** for S1 (create) and S3 (rewrite), and the **auditor agent** for S2 (audit), S4 (confirm), and S5 (governance). Each stage gets a fresh agent context window.
 
 This skill assumes the pipeline is already set up (use `audit-pipeline-setup` to create one).
 
@@ -57,11 +57,13 @@ python tools/audit_loop.py run
 
 This runs the unified S1-S5 loop. The orchestrator:
 1. Reads the index to find the next eligible row
-2. If a row has S1 = `todo` → launches the **creator agent** in a fresh context to create the document
-3. If a row has S1 = `done` and S2 not started → launches the **auditor agent** for S2-S5
-4. Records the result to `audit-log.jsonl` and `loop-state.json`
-5. Updates the index grid
-6. Proceeds to the next stage, next row, or stops if blocked
+2. If a row has S1 = `todo` → launches the **creator agent** to create the document
+3. If a row needs S2 or S4 → launches the **auditor agent** (read-only audit/confirm)
+4. If a row needs S3 → launches the **creator agent** with S2 findings + source material access (accurate rewrites)
+5. If a row needs S5 → launches the **auditor agent** (governance propagation)
+6. Records the result to `audit-log.jsonl` and `loop-state.json`
+7. Updates the index grid
+8. Proceeds to the next stage, next row, or stops if blocked
 
 The loop is fully autonomous — S1 triggers immediately after S5 completes the previous row. No manual handoff between creator and auditor.
 
@@ -158,6 +160,13 @@ The orchestrator invokes the configured agent CLI. If the command fails:
 - **Codex**: Ensure Codex is installed: `npm install -g @openai/codex`
 
 Check the `creator_agent.cli_command` and `auditor_cli_command` values in your domain config.
+
+### S3 rewrites are inaccurate despite source material access
+
+The creator agent in S3 has source material paths but is still guessing at values.
+- Check that the S3 prompt includes the S2 findings as specific fix instructions (not just "fix all issues").
+- Check that `--max-turns` is high enough for S3 to read source material before rewriting. S3 uses the creator agent config (default 10 turns).
+- Verify source material paths point to the right files — S3 needs the same paths as S1.
 
 ### Stage runs but no file changes in S3
 

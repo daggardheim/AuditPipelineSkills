@@ -27,11 +27,13 @@ runner_contract_file: ""           # Execution contract for the launcher
 
 # ── Agents ────────────────────────────────────────────────────
 
-# Creator agent: who creates documents in S1.
-# Each item gets a fresh creator-agent invocation with its own context window.
+# Creator agent: who creates documents (S1) and rewrites them (S3).
+# Each task gets a fresh creator-agent invocation with its own context window.
 #
-# The creator reads source material, follows the template, and writes one
+# S1: The creator reads source material, follows the template, and writes one
 # document per invocation. It also updates the index grid (S1 column + Start).
+# S3: The creator rewrites the document to fix S2's findings, using source
+# material access to verify facts (menu paths, versions, column names).
 
 creator_agent:
   cli: "claude"                    # "claude" (recommended) | "codex"
@@ -45,7 +47,7 @@ creator_agent:
     - ""                           # e.g., "Check Confluence for existing documentation on the topic"
     - ""                           # e.g., "Cross-reference against the API changelog"
 
-# Auditor agent: who runs S2-S5 (the automated audit loop).
+# Auditor agent: who runs S2, S4, S5 (audit, confirm, governance).
 # Each stage is a fresh auditor-agent invocation with its own context window.
 #
 # Option A — Claude Code (recommended)

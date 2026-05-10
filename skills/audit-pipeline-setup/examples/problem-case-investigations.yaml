@@ -32,7 +32,7 @@ creator_agent:
     - "Query the Jira API for case details and customer description"
     - "Check db_schema_columns in knowledge.db before writing any SQL"
 
-auditor_agent: "claude"
+auditor_agent: "claude"                # S2, S4, S5
 auditor_cli_command: "claude -p"
 
 audit_role: "problem case investigation auditor"

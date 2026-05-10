@@ -8,8 +8,8 @@
 
 This pattern uses two AI agents in sequence to produce high-quality structured documents:
 
-1. **Creator agent** (S1) — drafts a document from a template and source material
-2. **Auditor agent** (S2-S5) — reviews, rewrites, confirms, and propagates learnings in four isolated stages
+1. **Creator agent** (S1, S3) — drafts documents from source material (S1) and rewrites them to fix findings (S3)
+2. **Auditor agent** (S2, S4, S5) — reviews, confirms, and propagates learnings in three isolated stages
 
 The pipeline is domain-agnostic. The reference implementation audits test-scenario documents for a Sales Order API, but the same architecture works for any structured document type: API specs, runbooks, knowledge base articles, onboarding guides, investigation checklists.
 
@@ -32,7 +32,7 @@ The pipeline is domain-agnostic. The reference implementation audits test-scenar
 
 ```
 S1 Create            S2 Audit         S3 Rewrite       S4 Confirm       S5 Propagate
-(Creator agent)      (Auditor agent)  (Auditor agent)  (Auditor agent)  (Auditor agent)
+(Creator agent)      (Auditor agent)  (Creator agent)  (Auditor agent)  (Auditor agent)
 read+write           read-only        read+write       read-only        read+write
 NO sandbox           sandbox          NO sandbox       sandbox          NO sandbox
 
@@ -49,7 +49,7 @@ NO sandbox           sandbox          NO sandbox       sandbox          NO sandb
 |-------|-----------|--------|---------|-------|--------|------------|
 | S1 | Creator | Create document from template + source material | none (write access) | template, source material, reference example, open questions | new document file, index grid | draft document |
 | S2 | Auditor | Broad first-pass audit against template rules | read-only | document, template, question register | none | findings list, quality score, confidence |
-| S3 | Auditor | Apply fixes for all valid S2 findings | none (write access) | document, S2 findings | document file | rewrite_occurred flag, updated doc hash |
+| S3 | Creator | Apply fixes for all valid S2 findings, verifying accuracy against source material | none (write access) | document, S2 findings, template, source material, reference example | document file | rewrite_occurred flag, updated doc hash |
 | S4 | Auditor | Narrow acceptance check on S3 changes only | read-only | document, S3 notes | none | confirmation or new findings |
 | S5 | Auditor | Propagate recurring patterns to governance files | none (write access) | document, all governance files | template, question register | updated rules, new questions |
 
@@ -181,7 +181,7 @@ Every stage invocation returns this exact JSON structure. The schema is at `tool
 The index is a Markdown table that tracks every document's stage status:
 
 ```markdown
-| # | Item | Title | S1 Creator | S2 Auditor | S3 Auditor | S4 Auditor | S5 Auditor | Start | End | Total |
+| # | Item | Title | S1 Creator | S2 Auditor | S3 Creator | S4 Auditor | S5 Auditor | Start | End | Total |
 ```
 
 - Each S-column holds: `not-started`, `todo`, `in-progress`, `done`, or `blocked`
@@ -420,16 +420,18 @@ The pipeline is not limited to S1-S5. To add a stage (e.g., S6 for cross-documen
 
 ### Choosing agents
 
-The pipeline uses two agent roles, configured independently:
+The pipeline uses two agent configurations dispatched across stages based on role:
 
-**Creator agent (S1)** — creates documents from source material. Needs file read+write and enough turns to explore source material.
+**Creator agent (S1, S3)** — creates documents (S1) and rewrites them to fix findings (S3). Needs file read+write, source material access, and enough turns to explore and write accurately.
 
 | Option | CLI command | Notes |
 |--------|-------------|-------|
-| **Claude Code (recommended)** | `claude -p "prompt" --output-format json --max-turns 10` | Strong tool use, file exploration, creative judgment. Higher max-turns than auditor because S1 reads source material. |
+| **Claude Code (recommended)** | `claude -p "prompt" --output-format json --max-turns 10` | Strong tool use, file exploration, creative judgment. Higher max-turns because creator reads source material. |
 | **Codex** | `codex exec "prompt"` | Lighter weight. May need explicit file reads in the prompt since tool use is more limited. |
 
-**Auditor agent (S2-S5)** — audits, rewrites, confirms, and propagates governance. Needs structured JSON output and targeted file edits.
+S3 uses the creator agent because rewriting requires the same source material access as creating. Without it, S3 guesses at menu paths, version numbers, and column names instead of verifying them.
+
+**Auditor agent (S2, S4, S5)** — audits, confirms, and propagates governance. Needs structured JSON output and targeted file edits (S5 only).
 
 | Option | CLI command | Sandbox enforcement | Notes |
 |--------|-------------|-------------------|-------|
@@ -438,9 +440,9 @@ The pipeline uses two agent roles, configured independently:
 
 Common combinations:
 - **Claude + Claude** — simplest. One tool, one API key.
-- **Claude + Codex** — when OS-level sandbox enforcement is wanted for auditing.
+- **Claude + Codex** — when OS-level sandbox enforcement is wanted for audit stages.
 
-To configure agents, set `creator_agent` and `auditor_agent` sections in the domain config.
+To configure agents, set `creator_agent` and `auditor_agent` sections in the domain config. The orchestrator dispatches: S1/S3 → creator agent, S2/S4/S5 → auditor agent.
 
 ### Parallel document processing
 

@@ -5,7 +5,7 @@ description: Set up a new AI-driven document audit pipeline for any document typ
 
 # Set Up a Staged Document Audit Pipeline
 
-Create a new 5-stage AI-driven document audit pipeline for a document type. The pipeline uses two agent roles: a **creator** (S1) that produces documents in fresh context windows, and an **auditor** (S2-S5) that reviews, rewrites, confirms, and propagates governance learnings — also in fresh context windows.
+Create a new 5-stage AI-driven document audit pipeline for a document type. The pipeline uses two agent roles: a **creator** (S1, S3) that produces and rewrites documents in fresh context windows, and an **auditor** (S2, S4, S5) that reviews, confirms, and propagates governance learnings — also in fresh context windows.
 
 ## When to use this skill
 
@@ -61,10 +61,11 @@ Read the architecture document to understand the 5-stage model:
 ```
 
 Key concepts:
-- **Two agent roles** — Creator (S1) and Auditor (S2-S5), configured independently
+- **Two agent roles** — Creator (S1, S3) and Auditor (S2, S4, S5), configured independently
 - **Process vs. policy separation** — stages, state tracking, and governance are reusable; template rules and audit objectives are domain-specific
-- **Fresh context per stage** — every stage (including S1) gets a fresh agent invocation
+- **Fresh context per stage** — every stage gets a fresh agent invocation
 - **S2/S4 are read-only** (audit/confirm). **S1/S3/S5 have write access** (create/rewrite/propagate).
+- **S3 uses creator agent** — rewrites need source material access to verify facts, not just fix prose.
 
 ### 2. Explore the project
 
@@ -81,14 +82,12 @@ Use what you find to inform your recommendations in the next steps.
 
 Present the default role definitions, then ask if they match the project:
 
-**Creator agent (S1) — default responsibilities:**
-- Reads source material (code, docs, tickets) via file paths
-- Writes one output document per task following the template
-- Updates the index grid (S1 column + Start timestamp)
+**Creator agent (S1, S3) — default responsibilities:**
+- S1: Reads source material (code, docs, tickets) via file paths, writes one document per task following the template, updates the index grid
+- S3: Rewrites the document to fix S2's findings, verifying accuracy against source material (same access as S1)
 
-**Auditor agent (S2-S5) — default responsibilities:**
+**Auditor agent (S2, S4, S5) — default responsibilities:**
 - S2: Broad first-pass audit (read-only)
-- S3: Apply fixes for valid findings (write access to document)
 - S4: Narrow acceptance check on S3 changes (read-only)
 - S5: Governance propagation to shared files (write access to template, open questions, example prompt)
 
@@ -167,8 +166,9 @@ Copy `tools/audit_loop.py` and `tools/audit_stage_result.schema.json` from the r
 2. `_build_prompt()` — update project name in the opening line
 3. Add `_build_s1_prompt()` — assembles the S1 prompt from: task identity (from index), template content, reference example content, source material paths, open questions content, role additions
 4. Add `"S1"` to `VALID_STAGES`
-5. Rename `_run_codex()` to `_run_agent()` — dispatch to the configured CLI command for the current role (creator for S1, auditor for S2-S5)
+5. Rename `_run_codex()` to `_run_agent()` — dispatch to the configured CLI command for the current role (creator for S1/S3, auditor for S2/S4/S5)
 6. Update stage detection: check for S1 = `todo` before checking S2-S5 eligibility
+7. Update S3 prompt assembly: `_build_s3_prompt()` — assembles a creator-style prompt with S2 findings injected as the task instruction, plus template, reference example, and source material paths
 
 ### 9. Verify
 

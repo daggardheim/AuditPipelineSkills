@@ -29,7 +29,7 @@ creator_agent:
     - "Cross-reference against the OpenAPI schema to catch undocumented fields"
     - "Check for breaking changes compared to the previous API version"
 
-auditor_agent: "claude"
+auditor_agent: "claude"                # S2, S4, S5
 auditor_cli_command: "claude -p"
 
 audit_role: "API specification reviewer"

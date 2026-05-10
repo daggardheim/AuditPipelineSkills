@@ -28,7 +28,7 @@ creator_agent:
     - "Verify product names match the current official naming (not legacy or internal names)"
     - "Check that version numbers are pinned, not 'latest' or 'recent'"
 
-auditor_agent: "claude"
+auditor_agent: "claude"                # S2, S4, S5
 auditor_cli_command: "claude -p"
 
 audit_role: "knowledge base article reviewer"

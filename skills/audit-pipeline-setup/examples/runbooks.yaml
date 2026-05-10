@@ -29,7 +29,7 @@ creator_agent:
     - "Verify that all monitoring queries are syntactically valid"
     - "Check that remediation commands reference real service names from the infrastructure"
 
-auditor_agent: "claude"
+auditor_agent: "claude"                # S2, S4, S5
 auditor_cli_command: "claude -p"
 
 audit_role: "runbook QA auditor"

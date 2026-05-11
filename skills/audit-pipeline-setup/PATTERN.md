@@ -31,34 +31,52 @@ The pipeline is domain-agnostic. The reference implementation audits test-scenar
 ## Architecture
 
 ```
+                           ┌─────────────────────────────────────────────┐
+                           │  Per-row loop (automated, non-interactive)  │
+                           │                                             │
 S1 Create            S2 Audit         S3 Rewrite       S4 Confirm       S5 Propagate
 (Creator agent)      (Auditor agent)  (Creator agent)  (Auditor agent)  (Auditor agent)
-read+write           read-only        read+write       read-only        read+write
-NO sandbox           sandbox          NO sandbox       sandbox          NO sandbox
+read+write           tool-restricted  read+write       tool-restricted  read+write
 
  Source ──► Draft ──► Findings ──► Fixed doc ──► Verified ──► Updated governance
   material   │            │            │             │              │
              ▼            ▼            ▼             ▼              ▼
           index.md    audit-log    audit-log     audit-log      _template.md
           (state)     (findings)   (rewrites)    (confirm)      _open-questions.md
+                           │                                             │
+                           └─────────────────────────────────────────────┘
+                                             │
+                                    All rows S5-complete
+                                             │
+                                             ▼
+                           ┌─────────────────────────────────────────────┐
+                           │  Meta-audit (interactive, human + AI)       │
+                           │  Reads ALL documents + governance files     │
+                           │  Checks cross-document consistency          │
+                           │  Produces findings → human decides → fixes  │
+                           └─────────────────────────────────────────────┘
+                                             │
+                                             ▼
+                                   Pipeline complete
+                              (index: Meta-audit: done)
 ```
 
 ### Stage contract
 
 | Stage | Agent role | Action | Sandbox | Reads | Writes | Key output |
 |-------|-----------|--------|---------|-------|--------|------------|
-| S1 | Creator | Create document from template + source material | none (write access) | template, source material, reference example, open questions | new document file, index grid | draft document |
-| S2 | Auditor | Broad first-pass audit against template rules | read-only | document, template, question register | none | findings list, quality score, confidence |
-| S3 | Creator | Apply fixes for all valid S2 findings, verifying accuracy against source material | none (write access) | document, S2 findings, template, source material, reference example | document file | rewrite_occurred flag, updated doc hash |
-| S4 | Auditor | Narrow acceptance check on S3 changes only | read-only | document, S3 notes | none | confirmation or new findings |
-| S5 | Auditor | Propagate recurring patterns to governance files | none (write access) | document, all governance files | template, question register | updated rules, new questions |
+| S1 | Creator | Create document from template + source material | workspace-write | template, source material, reference example, open questions | new document file, index grid | draft document |
+| S2 | Auditor | Broad first-pass audit against template rules | tool-restricted | document, template, question register | none | findings list, quality score, confidence |
+| S3 | Creator | Apply fixes for all valid S2 findings, verifying accuracy against source material | workspace-write | document, S2 findings, template, source material, reference example | document file | rewrite_occurred flag, updated doc hash |
+| S4 | Auditor | Narrow acceptance check on S3 changes only | tool-restricted | document, S3 notes | none | confirmation or new findings |
+| S5 | Auditor | Propagate recurring patterns to governance files | workspace-write | document, all governance files | template, question register | updated rules, new questions |
 
 ### Key design decisions
 
 | Decision | Rationale |
 |----------|-----------|
 | Fresh context per stage | Prevents hallucinated continuity. Each stage re-reads the actual file state. |
-| Sandbox isolation for audit stages | S2 and S4 are read-only so the auditor cannot accidentally fix what it should only report. |
+| Tool restrictions for audit stages | S2 and S4 are limited by allowlists so the auditor cannot accidentally fix what it should only report. |
 | Governance propagation in S5 | Learnings from individual documents flow back into the template, improving all future documents. |
 | Structured JSON output | Every stage returns machine-parseable results. No free-text verdicts that need human interpretation. |
 | One document at a time | Prevents cross-contamination between documents and keeps token budgets predictable. |
@@ -73,14 +91,14 @@ The orchestrator builds an S1 prompt for each fresh creator-agent invocation. Th
 | Task identity | Item number, title, output filename | Extracted from `index.md` row |
 | Template | Required document structure and quality rules | Full content of `_template.md` embedded in prompt |
 | Reference example | Concrete style and depth calibration | Full content of one designated reference document embedded in prompt |
-| Source material | Domain knowledge the creator agent reads | File paths listed in prompt; agent reads via tool calls |
+| Source material | Domain knowledge the creator agent reads | Preloaded only when it is a small explicit text file; broad directories and binary blobs stay as path manifests |
 | Open questions | Avoid re-raising already-tracked questions | Full content of `_open-questions.md` embedded in prompt |
 | Role customizations | Domain-specific creator responsibilities | From `agents.creator.role_additions` in domain config |
 | Output contract | What files to write, what index columns to update | Standard: write document to drafts dir, set S1=done and Start timestamp in index |
 
 **Design rationale — embed vs. point-to:**
-- Template, reference example, and open questions are **embedded** in the prompt (small files, always needed in full).
-- Source material is referenced by **file path** (can be large, agent reads only the relevant parts via tool calls with `--max-turns`).
+- Template, reference example, and open questions are **preloaded** into the prompt from the allowlist each run.
+- Source material stays path-based when it is large, external, or binary; the orchestrator can still preload explicit text files and include directory manifests.
 
 **Reference example selection:** During setup, the AI helps the user identify 1-2 completed documents that represent good quality. One is embedded in every S1 prompt as a concrete target. If no completed document exists yet, the setup skill helps create the first one manually before automating the rest.
 
@@ -198,7 +216,7 @@ This is the core insight that makes the pipeline reusable.
 
 - Stage sequencing: S1 → S2 → S3 → S4 → S5
 - Fresh-context isolation per stage
-- Sandbox mode per stage (S2/S4 read-only, S3/S5 write)
+- Sandbox mode per stage (workspace-write for all stages; tool allowlists enforce read/write boundaries)
 - One document at a time
 - File-backed state and append-only audit log
 - Structured JSON output with machine-parseable fields
@@ -403,14 +421,188 @@ These mistakes were discovered in the reference implementation's first run (114 
 | **Recurring patterns never propagated** | Five patterns appeared in 10+ documents but were never added to the template: `???` placeholders, missing ETag steps, coverage overstatement, conditional assertions, done-but-blocked status. | S5 must always check for recurring patterns regardless of whether the current document was rewritten. These patterns are now in the template. |
 | **No resolution tracking** | The schema had no way to measure whether findings were actually fixed between stages. | Added `findings_resolved` field. S3/S4 count how many prior-stage `finding_signatures` are no longer present. |
 | **No permissions configured** | The orchestrator launched agents without `--allowedTools` or `--sandbox` flags. Every stage had full tool access — auditor stages could write files, creator stages could modify governance files. | Generate `_agent-permissions.yaml` during setup. The orchestrator reads it and applies `--allowedTools` (Claude) or `--sandbox` (Codex) per stage. |
+| **No cross-document audit** | Per-document S2/S4 audits all passed, but 13 completed documents had 2 critical cross-document inconsistencies (same concept using different identifiers, resolved question not propagated to 11 docs). A consumer would have discovered these during use — expensive rework. | The meta-audit is mandatory after the loop completes. Cross-document issues are structurally invisible to per-document stages. See the "Meta-audit" section. |
+
+---
+
+## Meta-audit — audit the auditor
+
+> **This step is mandatory.** The pipeline is not complete until the meta-audit passes. The index must show `Meta-audit: done` before the pipeline is considered finished.
+
+The S1-S5 loop audits each document in isolation. This is by design — it prevents cross-contamination and keeps token budgets predictable. But it means **no stage in the loop catches inconsistencies between documents**. The meta-audit fills that gap.
+
+### Why the meta-audit is separate from the loop
+
+| Property | S1-S5 loop | Meta-audit |
+|----------|-----------|------------|
+| **Scope** | One document at a time | All documents simultaneously |
+| **Interaction** | Automated, non-interactive | Interactive — human + AI collaborate |
+| **Decisions** | Template rules are pre-defined | Design decisions made on the spot (e.g., "which term wins?") |
+| **Trigger** | Row-by-row, sequential | Once, after all rows reach S5-complete |
+| **Can be automated?** | Yes — the orchestrator runs it | No — requires human judgment on cross-document trade-offs |
+
+The meta-audit cannot be inside the loop because it may require the human to make decisions that affect multiple documents. The AI identifies the inconsistency; the human decides the resolution; the AI (or human) applies the fixes.
+
+### Triggering the meta-audit
+
+The automated loop and the interactive meta-audit run at different times, often in different sessions. Two mechanisms ensure the meta-audit is not forgotten:
+
+**Layer 1: Terminal message (immediate).** When the orchestrator finishes the last row's S5 stage, it prints an ACTION REQUIRED message to the terminal:
+
+```
+════════════════════════════════════════════════════════════════
+  ACTION REQUIRED — Meta-audit pending
+  All N rows have completed S1-S5.
+  The pipeline is NOT complete until the meta-audit runs.
+  Start it with: /audit-pipeline-run → Step 6 (Meta-audit)
+════════════════════════════════════════════════════════════════
+```
+
+This catches the user if they are watching the terminal when the loop finishes.
+
+**Layer 2: Signal file (persistent).** The orchestrator writes `tools/audit/meta-audit-pending.json` when all rows reach S5-complete:
+
+```json
+{
+  "status": "pending",
+  "triggered_at": "2026-05-11T14:30:00Z",
+  "total_rows": 13,
+  "completed_rows": 13,
+  "index_path": "workflow/index.md",
+  "message": "All rows S5-complete. Meta-audit required before pipeline is done."
+}
+```
+
+This file persists across sessions. The `audit-pipeline-run` skill checks for it on every invocation (including `/resume`) and prompts the user if found. The file is deleted when the meta-audit completes (Step 5 of the procedure sets `Meta-audit: done` in the index).
+
+**Orchestrator implementation contract:**
+1. After each S5 completion, check whether all rows in the index are now S5-complete
+2. If yes and `meta-audit-pending.json` does not already exist: write the signal file and print the terminal message
+3. Never write the signal file if the index already has `Meta-audit: done`
+4. The meta-audit procedure (not the orchestrator) deletes the signal file after updating the index
+
+### What the loop misses
+
+| What S2/S4 catch (per-document) | What only the meta-audit catches (cross-document) |
+|----------------------------------|---------------------------------------------------|
+| Missing section in one document | Same concept uses different names across documents |
+| Document doesn't match template | Shared vocabulary or formatting is inconsistent |
+| Invalid example content | One document contradicts another's design decision |
+| Undocumented element | Resolved cross-cutting question not propagated to all documents |
+| Individual coverage checklist gaps | Scope differences for the same rule applied in related documents |
+
+### Quality checklist
+
+Build a domain-specific checklist from these categories. The examples span multiple domains to show how each category adapts.
+
+**1. Terminology consistency**
+- Shared identifiers use the same name and format everywhere
+  - *API specs:* parameter named `shipmentId` in one spec but `shipmentNbr` in another
+  - *Runbooks:* service called `order-processor` in one runbook but `order-service` in another
+  - *KB articles:* menu path is "Settings > Preferences" in one article but "Setup > Preferences" in another
+- Shared enum/status values are identical across documents that reference them
+- Technical terms are not synonymized (e.g., not "modify" in one doc and "edit" in another for the same concept)
+
+**2. Shared pattern consistency**
+- Documents that handle the same cross-cutting concern use the same approach:
+  - *API specs:* error codes, HTTP status codes, auth scopes, response envelope shape, rate limit tiers
+  - *Runbooks:* severity classification, escalation paths, monitoring query format, rollback procedure structure
+  - *KB articles:* applies-to format, version range notation, screenshot alt-text conventions
+  - *Investigations:* fix script structure (e.g., three-block pattern), root cause categories, comment format
+
+**3. Resolved cross-cutting question propagation**
+- Every resolved question in the question register is marked resolved in **every** document that references it
+- Resolution answer is incorporated where it affects the document (not just marked "resolved" with no detail)
+- This is the most common meta-audit finding — S5 propagates answers to governance files, but individual documents still reference the question as open
+
+**4. Design decision consistency**
+- Shared rules use the same scope across related documents (e.g., a validation that blocks 6 states in one doc but only 3 in a related doc)
+- Shared numbering schemes don't collide within a single document
+- Shared structural patterns are identical across documents that use them
+
+**5. Frontmatter hygiene**
+- Status fields reflect actual pipeline position (all S5-complete documents should say `done`)
+- Last-touched dates are plausible
+- Document metadata matches the design decisions recorded in governance files
+
+### How to run the meta-audit
+
+**Step 1: AI analysis.** The AI reads all documents + governance files and checks the quality checklist. For large document sets (20+), use parallel agents — one per document group — then a single cross-document consistency pass.
+
+**Step 2: Findings report.** The AI produces a findings report with severity, affected documents, and a recommended resolution for each finding.
+
+**Step 3: Human decisions.** The human reviews each finding and decides:
+- Accept the AI's recommendation
+- Choose a different resolution
+- Dismiss the finding as intentional
+
+This step is why the meta-audit cannot be automated — two documents may disagree and both be internally correct. A human must decide which one wins.
+
+**Step 4: Apply fixes.** The AI applies the agreed fixes across all affected documents.
+
+**Step 5: Update index.** Set `Meta-audit: done` in the index footer. The pipeline is now complete.
+
+### Index gate
+
+The index must include a meta-audit status line. The pipeline is not "done" until this reads `done`:
+
+```markdown
+| # | Item | Title | S1 | S2 | S3 | S4 | S5 | Start | End | Total |
+|---|------|-------|----|----|----|----|----|-------|-----|-------|
+| 1 | ... | ... | done | done | done | done | done | ... | ... | ... |
+| ... | | | | | | | | | | |
+
+---
+Meta-audit: done (2026-05-11, 9 findings, 2 critical, all resolved)
+```
+
+The `audit-pipeline-run` skill checks this line. If all rows are S5-complete but the meta-audit line is missing or not `done`, the skill reports the pipeline as "S5-complete, awaiting meta-audit" — not "done."
+
+### Output format
+
+```json
+{
+  "scope": "meta-audit",
+  "documents_audited": 13,
+  "findings": [
+    {
+      "category": "shared_pattern_consistency",
+      "severity": "critical",
+      "title": "Same concept uses different identifiers in related documents",
+      "affected_documents": ["doc-08.md", "doc-09.md", "doc-10.md", "doc-11.md"],
+      "description": "Documents 08-10 use term A; document 11 uses term B for the identical concept.",
+      "recommendation": "Standardize on term A across all four documents."
+    }
+  ],
+  "summary": {
+    "critical": 2,
+    "medium": 4,
+    "low": 3
+  }
+}
+```
+
+### Lessons from meta-audits
+
+The following findings emerged from real meta-audits. They all share a root cause: **per-document stages cannot see the document set**.
+
+| Finding | Domain | Category | Root cause |
+|---------|--------|----------|------------|
+| Resolved question not propagated to 11 of 13 docs | API specs | Question propagation | S5 propagates to governance files, not back into individual docs |
+| Same concept uses two different identifiers in related docs | API specs | Shared patterns | Each doc independently read source material and made locally-correct decisions |
+| Provisional language in 6 of 13 docs | API specs | Terminology | S2 caught it in one doc but S5 didn't propagate the fix pattern |
+| Frontmatter status drift (12 docs out of date) | API specs | Frontmatter hygiene | Index says `done` but the orchestrator doesn't update frontmatter inside documents |
+| Related docs apply the same rule with different scope | API specs | Design decisions | Per-document auditor has no visibility into related docs' choices |
+
+As more domains run meta-audits, add rows to this table — the pattern library grows with each use.
 
 ---
 
 ## Extending the pipeline
 
-### Adding a stage
+### Adding a stage to the loop
 
-The pipeline is not limited to S1-S5. To add a stage (e.g., S6 for cross-document consistency):
+The per-row loop is not limited to S1-S5. To add a stage:
 
 1. Add the stage to `VALID_STAGES` in `audit_loop.py`
 2. Add the stage to the `stage` enum in `audit_stage_result.schema.json`
@@ -418,6 +610,8 @@ The pipeline is not limited to S1-S5. To add a stage (e.g., S6 for cross-documen
 4. Set the sandbox mode in the main loop
 5. Update the index grid columns
 6. Update the runner contract
+
+Note: the meta-audit is intentionally **not** a loop stage. It runs after the loop, requires human interaction, and reads all documents at once. Do not add it to the orchestrator's automated loop.
 
 ### Choosing agents
 
@@ -437,7 +631,7 @@ S3 uses the creator agent because rewriting requires the same source material ac
 | Option | CLI command | Sandbox enforcement | Notes |
 |--------|-------------|-------------------|-------|
 | **Claude Code (recommended)** | `claude -p "prompt" --output-format json --max-turns 3` | Via prompt instructions (file scoping) | Same tool as creator. One install. |
-| **Codex** | `codex exec "prompt"` | Native OS-level `--sandbox read-only` | Separate install + API key. Built-in sandbox. |
+| **Codex** | `codex exec "prompt"` | Native OS-level `--sandbox workspace-write` | Separate install + API key. Built-in sandbox. |
 
 Common combinations:
 - **Claude + Claude** — simplest. One tool, one API key.
@@ -460,8 +654,8 @@ The pipeline enforces file-level permissions through a generated `_agent-permiss
 
 | Agent | Tool-level enforcement | Path-level enforcement |
 |-------|----------------------|----------------------|
-| Claude Code | `--allowedTools` CLI flag (e.g., `--allowedTools Read,Glob` for read-only stages) | Allowed paths injected into the prompt |
-| Codex | `--sandbox read-only` for audit stages, no sandbox for write stages | Allowed paths injected into the prompt |
+| Claude Code | `--allowedTools` CLI flag (e.g., `--allowedTools Read,Glob` for tool-restricted stages; creator stages may also include `Grep` and `Bash`) | Allowed paths injected into the prompt |
+| Codex | `--sandbox workspace-write` for all stages | Allowed paths injected into the prompt |
 
 **Design rationale:**
 
@@ -509,3 +703,18 @@ To see the pattern in action, examine:
 - `tools/audit/loop-state.json` — per-document state (36 entries)
 - `workflow/shared/_template.md` — the template with accumulated rules
 - `workflow/shared/_open-questions.md` — the question register (45+ entries across 4 categories)
+
+### Reference implementation 2: API migration specs (Shipment)
+
+- **Repository:** `C:\Users\dag.gardheim\SpecialProjects\APIMigration`
+- **Domain:** v1/v2 → v3 endpoint migration specifications
+- **Scale:** 13 documents (Shipment resource group), all S1-S5 in one day
+- **Documents created by:** Claude Code (S1, S3)
+- **Documents audited by:** Claude Code (S2, S4, S5)
+- **Meta-audit:** Human + parallel AI agents (2026-05-11), found 9 findings (2 critical)
+- **Key meta-audit findings:**
+  - Error code inconsistency across 4 related specs (`SHIPMENT_NOT_MODIFIABLE` vs `SHIPMENT_STATUS_NOT_EDITABLE`)
+  - Resolved cross-cutting question (C1) not propagated to 11 of 13 specs
+  - Frontmatter status drift in 12 specs (index said `done`, specs said `in-progress`)
+  - Rate limit using provisional language in 6 specs (caught and fixed in one spec by S2, never propagated)
+- **Lesson:** The meta-audit is essential for API specs because consistency across the endpoint surface is a hard requirement — an SDK generator would produce different error types for the same scenario

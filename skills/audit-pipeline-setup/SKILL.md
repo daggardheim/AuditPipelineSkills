@@ -64,8 +64,9 @@ Key concepts:
 - **Two agent roles** — Creator (S1, S3) and Auditor (S2, S4, S5), configured independently
 - **Process vs. policy separation** — stages, state tracking, and governance are reusable; template rules and audit objectives are domain-specific
 - **Fresh context per stage** — every stage gets a fresh agent invocation
-- **S2/S4 are read-only** (audit/confirm). **S1/S3/S5 have write access** (create/rewrite/propagate).
+- **All stages use a workspace-write sandbox** for runtime stability. Stage allowlists still enforce the intended tool boundaries: S2/S4 are tool-restricted auditors, while S1/S3/S5 have write-capable allowlists.
 - **S3 uses creator agent** — rewrites need source material access to verify facts, not just fix prose.
+- **Prompt budget matters** — explicit text files can be preloaded, but large directories and binary blobs stay path-based or manifest-based so the prompt stays within CLI limits.
 
 ### 2. Explore the project
 
@@ -85,10 +86,11 @@ Present the default role definitions, then ask if they match the project:
 **Creator agent (S1, S3) — default responsibilities:**
 - S1: Reads source material (code, docs, tickets) via file paths, writes one document per task following the template, updates the index grid
 - S3: Rewrites the document to fix S2's findings, verifying accuracy against source material (same access as S1)
+- Creator allowlists typically include `Read, Write, Edit, Glob`; add `Grep` and `Bash` when the source material workflow needs shell discovery or repository querying.
 
 **Auditor agent (S2, S4, S5) — default responsibilities:**
-- S2: Broad first-pass audit (read-only)
-- S4: Narrow acceptance check on S3 changes (read-only)
+- S2: Broad first-pass audit (tool-restricted)
+- S4: Narrow acceptance check on S3 changes (tool-restricted)
 - S5: Governance propagation to shared files (write access to template, open questions, example prompt)
 
 Ask: **"Does this match your project, or would you add anything to either role?"**
@@ -111,9 +113,11 @@ The creator and auditor can use the same agent or different agents. Common combi
 This is unique to the creator role. Work through these with the user:
 
 1. **Source material paths** — which files/directories does the creator need to read? (code, docs, API specs, tickets)
+   - Prefer explicit files where possible; use directory manifests or path references for large trees and binary sources.
 2. **Reference example** — identify one completed document to embed as a quality target. If none exists, help the user create the first one manually.
 3. **Role additions** — any domain-specific creator responsibilities from step 3.
 4. **Max-turns** — how many tool-call rounds the creator agent needs. Default 10 for source code exploration; lower for simpler domains.
+5. **Prompt budget** — if the combined source material is large, decide which inputs are preloaded as text and which remain path references.
 
 ### 6. Fill in the domain config
 
@@ -166,14 +170,14 @@ Build the permissions file from the domain config:
 1. Copy the `agents` section (creator and auditor CLI config) directly.
 2. For each stage, set `allowed_tools`:
    - Read-only stages (S2, S4): `[Read, Glob]`
-   - Write stages (S1, S3, S5): `[Read, Write, Edit, Glob]`
+   - Write stages (S1, S3, S5): `[Read, Write, Edit, Glob]` by default; add `Grep` and `Bash` when the creator needs shell discovery or repository querying
 3. For each stage, build `allowed_read` from:
    - The governance file paths (`template_file`, `question_register_file`, `example_prompt_file`, `index_file`) — based on which files that stage needs
    - `agents.creator.source_material_paths` — for S1 and S3 only
    - `agents.creator.reference_example` — for S1 and S3 only
 4. For each stage, build `allowed_write` from:
    - S1: `documents_dir/{document}`, `index_file`
-   - S2, S4: `[]` (empty — read-only)
+   - S2, S4: `[]` (empty - tool-restricted)
    - S3: current document path, `index_file`
    - S5: `s5_writable_files` entries, `index_file`
 5. Use `{document}` as placeholder in paths — the orchestrator replaces it at runtime.
@@ -199,6 +203,7 @@ Before running, verify:
 - Example findings are concrete (specific location, specific fix)
 - Red flags are actionable (the auditor can detect them in one pass)
 - S1 prompt includes template, reference example, and source material paths
+- S1 prompt keeps large external sources path-based or manifest-based instead of inlining binary blobs
 - The orchestrator path constants match the actual folder structure
 - All governance files are consistent with each other
 - `_agent-permissions.yaml` exists and has entries for all 5 stages

@@ -16,7 +16,8 @@ agents:
 stages:
   S1:
     role: creator
-    allowed_tools: [Read, Write, Edit, Glob]
+    sandbox: workspace-write
+    allowed_tools: [Read, Write, Edit, Glob, Grep, Bash]
     allowed_read:
       - "runbooks/shared/_template.md"
       - "runbooks/shared/_open-questions.md"
@@ -28,6 +29,7 @@ stages:
 
   S2:
     role: auditor
+    sandbox: workspace-write
     allowed_tools: [Read, Glob]
     allowed_read:
       - "runbooks/drafts/{document}"
@@ -39,7 +41,8 @@ stages:
 
   S3:
     role: creator
-    allowed_tools: [Read, Write, Edit, Glob]
+    sandbox: workspace-write
+    allowed_tools: [Read, Write, Edit, Glob, Grep, Bash]
     allowed_read:
       - "runbooks/drafts/{document}"
       - "runbooks/shared/_template.md"
@@ -52,6 +55,7 @@ stages:
 
   S4:
     role: auditor
+    sandbox: workspace-write
     allowed_tools: [Read, Glob]
     allowed_read:
       - "runbooks/drafts/{document}"
@@ -63,6 +67,7 @@ stages:
 
   S5:
     role: auditor
+    sandbox: workspace-write
     allowed_tools: [Read, Write, Edit, Glob]
     allowed_read:
       - "runbooks/drafts/{document}"

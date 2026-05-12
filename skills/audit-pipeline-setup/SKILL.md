@@ -5,7 +5,7 @@ description: Set up a new AI-driven document audit pipeline for any document typ
 
 # Set Up a Staged Document Audit Pipeline
 
-Create a new AI-driven document audit pipeline for a document type. The core pipeline uses 5 stages (S1-S5) with two agent roles: a **creator** (S1, S3) that produces and rewrites documents in fresh context windows, and an **auditor** (S2, S4, S5) that reviews, confirms, and propagates governance learnings - also in fresh context windows. An optional **retroactive governance pass** (S6-S8) re-audits all documents against the final governance after the meta-audit, closing the quality gradient between early and late pipeline documents. The pipeline is not complete until the mandatory meta-audit runs, writes a durable report, and applies the agreed fixes before completion.
+Create a new AI-driven document audit pipeline for a document type. The core pipeline uses 5 stages (S1-S5) with two agent roles: a **creator** (S1, S3) that produces and rewrites documents in fresh context windows, and an **auditor** (S2, S4, S5) that reviews, confirms, and propagates governance learnings - also in fresh context windows. An optional **retroactive governance pass** (S6-S8) re-audits all documents against the final governance after the meta-audit, closing the quality gradient between early and late pipeline documents. The pipeline is orchestrator-driven end to end; there is no separate spot-check mode. The pipeline is not complete until the mandatory meta-audit runs, writes a durable report, and applies the agreed fixes before completion.
 
 ## When to use this skill
 
@@ -19,6 +19,19 @@ Create a new AI-driven document audit pipeline for a document type. The core pip
 - Fewer than 5 documents (just review them manually)
 - Documents have no shared structure (no template to audit against)
 - Quality is purely subjective and can't be expressed as concrete rules
+
+## Preflight
+
+Before setup, confirm:
+
+- The project has a shared template or can be made into one
+- Existing documents follow a common structure
+- At least one reference example exists or can be created
+- Creator and auditor roles are still distinct
+- Source material paths are explicit and bounded
+- The retroactive loop, if enabled, will be a separate runner
+- The visible retroactive grid will use `needs-review` for unresolved rows
+- The meta-audit remains mandatory before any retroactive pass starts
 
 ## Reference implementation
 
@@ -199,15 +212,16 @@ If the user wants the retroactive governance pass:
 1. Set `retroactive_pass.enabled: true` in the domain config
 2. The S6 audit criteria default to checking all four dimensions (structural completeness, resolved questions, cross-cutting standards, quality baseline). Disable any that don't apply.
 3. S7 source material access defaults to `true` — same access as S3. This is recommended because quality lift often requires adding substantive content, not just formatting fixes.
-4. Generate S6/S7/S8 entries in `_agent-permissions.yaml` using the same patterns as S2/S3/S4
-5. Add the retroactive pass section to `_pipeline.md` with stage definitions and decision logic
-6. Add the retroactive governance pass tracking section to `index.md`
+  4. Generate S6/S7/S8 entries in `_agent-permissions.yaml` using the same patterns as S2/S3/S4
+  5. Add the retroactive pass section to `_pipeline.md` with stage definitions and decision logic
+  6. Add the retroactive governance pass tracking section to `index.md`
+  7. Add a human-facing legend below the retroactive grid and a prompt-ready open-issues summary block for AI handoff
 
 If the user declines the retroactive pass, skip this step. The pipeline works without it — S6-S8 are purely additive.
 
 ### 8. Set up the orchestrator
 
-Copy `tools/audit_loop.py` and `tools/audit_stage_result.schema.json` from the reference implementation. Update:
+Copy `tools/audit_loop.py` and `tools/audit_stage_result.schema.json` from the reference implementation. If retroactive governance is enabled, create a separate `tools/retroactive_audit_loop.py` from the same orchestration pattern rather than folding S6-S8 into the primary loop. Update:
 
 1. Path constants — point to the new document folder
 2. `_build_prompt()` — update project name in the opening line
@@ -239,6 +253,8 @@ Before running, verify:
   - S7 has the same source material paths as S3
   - `_pipeline.md` documents S6-S8 stage behavior and decision logic
   - `index.md` has a retroactive governance pass tracking section template
+  - the retroactive grid uses `needs-review` for unresolved rows in the visible index
+  - the index includes a short legend and a prompt-ready open-issues summary for AI handoff
 
 ## Anti-patterns to avoid
 

@@ -243,7 +243,7 @@ The index is a Markdown table that tracks every document's stage status:
 - The orchestrator reads the grid to find the next eligible document
 - The orchestrator writes the grid to record stage transitions and completion times
 
-When the retroactive governance pass runs, a separate tracking section is added below the meta-audit line:
+When the retroactive governance pass runs, a separate tracking section is added below the meta-audit line. The visible grid should stay machine-friendly: use `needs-review` for unresolved rows, and keep `blocked` in the runner state/logs rather than as the human-facing status token.
 
 ```markdown
 ## Retroactive Governance Pass
@@ -254,7 +254,7 @@ When the retroactive governance pass runs, a separate tracking section is added 
 | 2 | 02-doc-name | pass | 0 | skipped | skipped |
 ```
 
-S6 Verdict is `pass` or `fail`. S7 Rewrite and S8 Confirm are `done`, `skipped`, `in-progress`, or `blocked`.
+S6 Verdict is `pass` or `fail`. S7 Rewrite and S8 Confirm are `done`, `skipped`, `confirmed`, or `needs-review`.
 
 ---
 
@@ -671,6 +671,8 @@ The S1-S5 loop processes documents sequentially. Each row benefits from governan
 
 The meta-audit partially closes this gap by finding cross-cutting inconsistencies. The retroactive governance pass closes it systematically by re-auditing every document against the **final** governance.
 
+Treat S6-S8 as a second deterministic loop in the same family as S1-S5: it processes one row at a time, uses fresh context per stage, keeps file-backed state, and follows a fixed stage order. The difference is scope and timing, not orchestration style. S1-S5 produces and matures the governance; the retroactive loop re-applies that final governance to every completed document after the meta-audit.
+
 ### Why the meta-audit alone is not enough
 
 | What the meta-audit catches | What it misses |
@@ -731,6 +733,20 @@ S7 runs at most once per document. If S8 finds regressions, the document is flag
 | S6 | Auditor | Retroactive conformance audit against final governance | tool-restricted | document, final template, final open-questions | none | per-spec pass/fail + findings |
 | S7 | Creator | Quality lift rewrite addressing S6 findings | workspace-write | document, S6 findings, final template, source material, reference example | document file | rewrite_occurred flag |
 | S8 | Auditor | Confirmation audit on S7 rewrite | tool-restricted | document, S6 findings | none | confirmation or regressions |
+
+### Human-facing status and AI handoff
+
+Use the retroactive grid as a machine-readable ledger. Keep the visible statuses stable and outcome-oriented:
+
+- `pass`, `fail`, `done`, `confirmed`, `skipped`, `needs-review`
+- Keep `blocked` in the runner state and audit log, not as the primary human-facing token
+- If a row is unresolved, show `needs-review` in the index and include the row in the prompt-ready open-issues summary
+
+For handoff, generate a short open-issues summary that lists:
+- row number and item
+- current stage
+- why the row needs review
+- the next action the AI should take
 
 ---
 

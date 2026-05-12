@@ -1,17 +1,17 @@
 ---
 name: audit-pipeline-run
-description: Run or resume an existing staged document audit pipeline. Use when executing the S1-S5 pipeline loop, running the meta-audit, running the retroactive governance pass (S6-S8), checking pipeline status, resuming a blocked row, or troubleshooting audit results. Triggers on "run audit", "resume audit", "check audit status", "audit pipeline status", "meta-audit", "audit the auditor", "run retroactive pass", "retroactive governance", or "why is row X blocked". Companion skill to audit-pipeline-setup (which creates a new pipeline).
+description: Run or resume an existing staged document audit pipeline. Use when executing the S1-S5 pipeline loop, running the meta-audit, running the retroactive governance pass (S6-S8), checking pipeline status, resuming a blocked or needs-review row, or troubleshooting audit results. Triggers on "run audit", "resume audit", "check audit status", "audit pipeline status", "meta-audit", "audit the auditor", "run retroactive pass", "retroactive governance", or "why is row X blocked". Companion skill to audit-pipeline-setup (which creates a new pipeline).
 ---
 
 # Run a Staged Document Audit Pipeline
 
-Execute, monitor, or resume an existing pipeline, then complete the mandatory meta-audit and optional retroactive governance pass. The pipeline has up to three phases:
+Execute, monitor, or resume an existing pipeline, then complete the mandatory meta-audit and optional retroactive governance pass. The pipeline is orchestrator-driven and has up to three phases:
 
 1. **S1-S5 loop** (automated, non-interactive) — the orchestrator processes each row through S1→S2→S3→S4→S5
 2. **Meta-audit** (interactive, human + AI) - after all rows reach S5-complete, check cross-document consistency, write a durable report, and apply the agreed fixes in the source docs
 3. **Retroactive governance pass** (S6-S8, automated) — re-audit all documents against final governance, rewrite those that fail
 
-The pipeline is **not complete** until the meta-audit passes, the agreed fixes are applied, and the index shows `Meta-audit: done` (and `Retroactive pass: done` if enabled).
+The pipeline is **not complete** until the meta-audit passes, the agreed fixes are applied, and the index shows `Meta-audit: done` (and `Retroactive pass: done` if enabled). The orchestrator is authoritative; do not invent manual spot-check modes.
 
 This skill assumes the pipeline is already set up (use `audit-pipeline-setup` to create one).
 
@@ -20,11 +20,11 @@ This skill assumes the pipeline is already set up (use `audit-pipeline-setup` to
 - Starting or resuming the S1-S5 pipeline loop
 - Running the meta-audit after the loop completes
 - Checking the status of an in-progress pipeline run
-- Investigating why a document is blocked
+- Investigating why a document is blocked or marked `needs-review`
 - Reviewing audit results and deciding next steps
 - Running the retroactive governance pass (S6-S8) after the meta-audit
 - Checking retroactive pass status
-- Resetting a blocked document to re-run
+- Resetting a blocked or needs-review document to re-run
 
 ## Step 1 — Identify the pipeline
 
@@ -40,6 +40,34 @@ Find the pipeline in the current project. Look for these markers:
 
 If none of these exist, suggest the user run `audit-pipeline-setup` first.
 
+## Status semantics
+
+Use the index as the machine-readable ledger and keep the visible status vocabulary stable:
+
+- `pass` = the stage audit found no final-governance blockers
+- `fail` = the stage audit found concrete problems
+- `done` = the rewrite or propagation stage completed
+- `confirmed` = the acceptance stage accepted the rewrite
+- `skipped` = the row intentionally bypassed a stage because the prior stage completed it
+- `needs-review` = the row is unfinished and needs human or AI attention
+
+Keep `blocked` as runner/internal state only. In the human-facing index, prefer `needs-review` for any unresolved row and reserve `blocked` for the loop-state file and audit log.
+
+## Preflight
+
+Before you run or resume a pipeline, confirm:
+
+- The project has a shared template and reference example
+- Creator and auditor roles are still distinct
+- Source material paths are explicit and bounded
+- S2, S4, S6, and S8 are read-only at the tool level
+- S5 and S7 are the only write-capable propagation/rewrite stages
+- The retroactive loop, if enabled, has its own runner
+- The visible retroactive grid uses `needs-review` for unresolved rows
+- `blocked` is only runner state, not the main human-facing token
+- The meta-audit is complete before any retroactive pass starts
+- There is no manual spot-check mode in the process
+
 ## Step 2 — Check status
 
 Run the orchestrator's status command:
@@ -50,7 +78,7 @@ python tools/audit_loop.py status
 
 This shows:
 - How many documents are tracked
-- How many are completed, in-progress, or blocked
+- How many are completed, in-progress, or needs-review
 - Which document is next eligible for audit
 - Token usage so far
 
@@ -72,7 +100,7 @@ This runs the unified S1-S5 loop. The orchestrator:
 5. If a row needs S5 → launches the **auditor agent** (governance propagation)
 6. Records the result to `audit-log.jsonl` and `loop-state.json`
 7. Updates the index grid
-8. Proceeds to the next stage, next row, or stops if blocked
+8. Proceeds to the next stage, next row, or stops if unresolved
 
 Transient launch errors are retried quietly by the runner before a stage is treated as failed. A stage only becomes blocked when the failure is persistent or non-transient.
 
@@ -94,7 +122,7 @@ The loop checks for new eligible rows continuously. When S5 completes a row, the
 
 ## Step 4 — Handle blocked documents
 
-When a document is blocked, check the reason:
+When a document is blocked, or the index shows `needs-review`, check the reason:
 
 1. Read `loop-state.json` for the document entry — look at `blocked_reason`
 2. Read the last audit event in `audit-log.jsonl` for that document — look at `note` and `follow_up`
@@ -109,6 +137,8 @@ To unblock:
 1. Resolve the underlying question (answer in `_open-questions.md`, add fixture data, etc.)
 2. Reset the document state in `loop-state.json`: set `blocked: false`, remove from `completed_stages` the stage that blocked
 3. Re-run: `python tools/audit_loop.py run --doc path/to/document.md`
+
+If the visible index row should reflect that the work is still open, use `needs-review` rather than `blocked`.
 
 ## Step 5 — Review results and check meta-audit readiness
 
@@ -166,6 +196,10 @@ If the pipeline is S5-complete and awaiting meta-audit, prompt the user: "All ro
 > **This step is required.** The pipeline is not complete without it. Do not skip.
 
 The meta-audit checks cross-document consistency - things the per-row S1-S5 loop cannot catch because it only sees one document at a time. Its job is not just to report findings; once the user chooses a resolution, apply the agreed fixes in the owning documents before moving on.
+
+Run it with the separate orchestrator `tools/retroactive_audit_loop.py`; do not fold S6-S8 into the S1-S5 runner.
+
+Treat S6-S8 as a second deterministic loop in the same family as S1-S5: it processes one row at a time, uses fresh context per stage, keeps file-backed state, and follows a fixed stage order. The difference is scope and timing, not orchestration style. S1-S5 produces and matures the governance; the retroactive loop re-applies that final governance to every completed document after the meta-audit.
 
 ### Prerequisites
 
@@ -245,6 +279,8 @@ Use this generic activation prompt:
 Meta-audit complete. The retroactive governance pass (S6-S8) is enabled. This will re-audit all N documents against the final governance. Documents that pass S6 are skipped; those that fail get a quality lift rewrite (S7) and confirmation (S8). Start the retroactive governance pass?
 ```
 
+Operationally, run that pass with `tools/retroactive_audit_loop.py`.
+
 ### Procedure
 
 **7a. Initialize the tracking section.** If the index doesn't already have a "Retroactive Governance Pass" section, add it below the meta-audit line with all rows set to `not-started`:
@@ -285,8 +321,8 @@ Meta-audit complete. The retroactive governance pass (S6-S8) is enabled. This wi
      - The S7-rewritten document
      - S6 findings
      - Prompt: "Confirm that each S6 finding is addressed. Check for regressions. Return pass/fail."
-   - Update index: S8 Confirm = `done` (or `blocked` if regressions found)
-   - If S8 finds regressions: flag for manual review, do NOT re-run S7
+   - Update index: S8 Confirm = `confirmed` on success
+   - If S8 finds regressions: update the visible grid to `needs-review`, flag the row in runner state as blocked, and do NOT re-run S7 automatically. The visible grid stays human-friendly; the runner state keeps the execution details.
 
 4. Append all events (S6, S7, S8) to audit-log.jsonl with stage field `S6`/`S7`/`S8`
 

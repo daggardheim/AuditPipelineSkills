@@ -1,16 +1,17 @@
 ---
 name: audit-pipeline-run
-description: Run or resume an existing staged document audit pipeline. Use when executing the S1-S5 pipeline loop, running the meta-audit, checking pipeline status, resuming a blocked row, or troubleshooting audit results. Triggers on "run audit", "resume audit", "check audit status", "audit pipeline status", "meta-audit", "audit the auditor", or "why is row X blocked". Companion skill to audit-pipeline-setup (which creates a new pipeline).
+description: Run or resume an existing staged document audit pipeline. Use when executing the S1-S5 pipeline loop, running the meta-audit, running the retroactive governance pass (S6-S8), checking pipeline status, resuming a blocked row, or troubleshooting audit results. Triggers on "run audit", "resume audit", "check audit status", "audit pipeline status", "meta-audit", "audit the auditor", "run retroactive pass", "retroactive governance", or "why is row X blocked". Companion skill to audit-pipeline-setup (which creates a new pipeline).
 ---
 
 # Run a Staged Document Audit Pipeline
 
-Execute, monitor, or resume an existing S1-S5 pipeline, then complete the mandatory meta-audit. The pipeline has two phases:
+Execute, monitor, or resume an existing pipeline, then complete the mandatory meta-audit and optional retroactive governance pass. The pipeline has up to three phases:
 
 1. **S1-S5 loop** (automated, non-interactive) — the orchestrator processes each row through S1→S2→S3→S4→S5
 2. **Meta-audit** (interactive, human + AI) — after all rows reach S5-complete, check cross-document consistency
+3. **Retroactive governance pass** (S6-S8, automated) — re-audit all documents against final governance, rewrite those that fail
 
-The pipeline is **not complete** until the meta-audit passes. The index must show `Meta-audit: done`.
+The pipeline is **not complete** until the meta-audit passes (and the retroactive pass, if enabled). The index must show `Meta-audit: done` (and `Retroactive pass: done` if enabled).
 
 This skill assumes the pipeline is already set up (use `audit-pipeline-setup` to create one).
 
@@ -21,6 +22,8 @@ This skill assumes the pipeline is already set up (use `audit-pipeline-setup` to
 - Checking the status of an in-progress pipeline run
 - Investigating why a document is blocked
 - Reviewing audit results and deciding next steps
+- Running the retroactive governance pass (S6-S8) after the meta-audit
+- Checking retroactive pass status
 - Resetting a blocked document to re-run
 
 ## Step 1 — Identify the pipeline
@@ -180,22 +183,30 @@ The meta-audit checks cross-document consistency — things the per-row S1-S5 lo
 
 **6b. Run the analysis.** For small sets (under 20 documents): read all documents and check each against the checklist. For larger sets: dispatch parallel agents — one per document group — each checking their group against the checklist, then do a single cross-document consistency pass across groups.
 
-**6c. Present findings to the user.** For each finding, state:
+**6c. Write the meta-audit report.** Save a durable findings report before asking the user to choose resolutions. Use a stable location in the pipeline workspace, such as `tools/audit/meta-audit-report.md` for the human-readable report and `tools/audit/meta-audit-report.json` if the orchestrator also emits structured output. The report should include:
+- scope and date
+- documents audited
+- checklist used
+- findings grouped by category
+- severity, affected documents, and exact inconsistent text
+- recommended resolution for each finding
+
+**6d. Present findings to the user.** For each finding, state:
 - Category and severity (critical / medium / low)
 - Which documents are affected
 - What the inconsistency is (quote the exact text that differs)
 - Recommended resolution
 
-**6d. Get human decisions.** For each finding, the user decides:
+**6e. Get human decisions.** For each finding, the user decides:
 - Accept the recommendation
 - Choose a different resolution
 - Dismiss as intentional
 
 This is why the meta-audit cannot be automated — the AI identifies the problem, but the human decides which side of an inconsistency wins.
 
-**6e. Apply fixes.** Apply the agreed resolutions across all affected documents.
+**6f. Apply fixes.** Apply the agreed resolutions across all affected documents.
 
-**6f. Update the index and clean up.** Add or update the meta-audit line at the bottom of the index:
+**6g. Update the index and clean up.** Add or update the meta-audit line at the bottom of the index:
 
 ```markdown
 ---
@@ -204,7 +215,88 @@ Meta-audit: done (YYYY-MM-DD, N findings, N critical, all resolved)
 
 Then delete the signal file `tools/audit/meta-audit-pending.json` if it exists — the pipeline is now complete and the trigger is no longer needed.
 
-## Step 7 — Handle permission failures
+If you want an audit trail of the meta-audit itself, keep the report file alongside the index and audit log. The report is the human-readable review record; the index footer is the completion gate.
+
+## Step 7 — Retroactive governance pass (S6-S8)
+
+> **This step is optional.** It runs only if `retroactive_pass.enabled: true` in the domain config. If not enabled, the pipeline is complete after the meta-audit.
+
+The retroactive governance pass re-audits all documents against the **final** governance — the template, open-questions, and standards as they exist after S5 propagation and meta-audit fixes. This closes the quality gradient between early and late pipeline documents.
+
+### Prerequisites
+
+- Meta-audit must be complete (`Meta-audit: done` in the index)
+- `retroactive_pass.enabled: true` in the domain config (or `_pipeline.md` documents S6-S8)
+
+### Triggering
+
+After the meta-audit completes, check whether the retroactive pass is enabled. If yes, prompt the user:
+
+> "Meta-audit complete. The retroactive governance pass (S6-S8) is enabled. This will re-audit all N documents against the final governance. Specs that pass S6 are skipped; those that fail get a quality lift rewrite (S7) and confirmation (S8). Start the retroactive pass?"
+
+### Procedure
+
+**7a. Initialize the tracking section.** If the index doesn't already have a "Retroactive Governance Pass" section, add it below the meta-audit line with all rows set to `not-started`:
+
+```markdown
+## Retroactive Governance Pass
+
+| # | Item | S6 Verdict | S6 Findings | S7 Rewrite | S8 Confirm |
+|---|------|-----------|-------------|------------|------------|
+| 1 | 01-doc-name | not-started | | not-started | not-started |
+| 2 | 02-doc-name | not-started | | not-started | not-started |
+```
+
+**7b. Process each row in index order.** For each row:
+
+1. **Run S6** — launch auditor agent with:
+   - The document
+   - Final `_template.md`
+   - Final `_open-questions.md` (including all resolved answers)
+   - S6 audit criteria from the domain config
+   - Prompt: "Audit this document against the final governance. Check: structural completeness, resolved questions, cross-cutting standards, quality baseline. Return pass/fail verdict with findings."
+
+2. **If S6 verdict is `pass`:**
+   - Update index: S6 Verdict = `pass`, S6 Findings = `0`, S7 Rewrite = `skipped`, S8 Confirm = `skipped`
+   - Append event to audit-log.jsonl
+   - Move to next row
+
+3. **If S6 verdict is `fail`:**
+   - Update index: S6 Verdict = `fail`, S6 Findings = N
+   - **Run S7** — launch creator agent with:
+     - The document
+     - S6 findings
+     - Final template + open-questions
+     - Source material paths (same as S3)
+     - Prompt: "Rewrite this document to address the S6 findings below. Only fix what S6 flagged — do not redesign the document or change validated decisions."
+   - Update index: S7 Rewrite = `done`
+   - **Run S8** — launch auditor agent with:
+     - The S7-rewritten document
+     - S6 findings
+     - Prompt: "Confirm that each S6 finding is addressed. Check for regressions. Return pass/fail."
+   - Update index: S8 Confirm = `done` (or `blocked` if regressions found)
+   - If S8 finds regressions: flag for manual review, do NOT re-run S7
+
+4. Append all events (S6, S7, S8) to audit-log.jsonl with stage field `S6`/`S7`/`S8`
+
+**7c. Finalize.** When all rows are processed, add to the index footer:
+
+```markdown
+Retroactive pass: done (YYYY-MM-DD, N specs audited, M rewritten, K passed clean)
+```
+
+### Status reporting
+
+When checking retroactive pass status, report:
+
+| Index state | Status to report |
+|-------------|-----------------|
+| No retroactive pass section | "Retroactive pass not enabled" or "Not yet started" |
+| Some rows still processing | "Retroactive pass in progress — N of M rows complete" |
+| All rows done, no `Retroactive pass: done` line | "Retroactive pass processing complete, awaiting finalization" |
+| `Retroactive pass: done` in footer | "Retroactive pass complete" |
+
+## Step 8 — Handle permission failures
 
 When a stage fails after the runner has exhausted its transient retries — for example, a tool was blocked, the sandbox prevented access, or the agent hit max-turns without producing output — this is a setup problem, not an agent problem.
 
@@ -338,3 +430,31 @@ The orchestrator can't find `_agent-permissions.yaml` or it's missing stages.
 - Re-run `audit-pipeline-setup` to regenerate the file.
 - Or create it manually following the reference implementation at `reference/runbooks/_agent-permissions.yaml`.
 - Every pipeline must have entries for all 5 stages (S1-S5).
+
+### Retroactive pass not starting
+
+Check:
+1. Meta-audit line shows `done` in the index
+2. `retroactive_pass.enabled: true` in the domain config or `_pipeline.md` documents S6-S8 stages
+3. `_agent-permissions.yaml` has S6, S7, S8 entries
+
+### S6 passes everything (no findings)
+
+This may be correct — if the meta-audit was thorough, S6 may find nothing new. But if you expect findings:
+- Check that S6 is auditing against the **final** template (not an earlier version)
+- Check that resolved open-questions are included in the S6 prompt
+- Check that the S6 audit criteria include quality_baseline (relative comparison)
+
+### S7 rewrite introduces regressions (S8 fails)
+
+S7 should only address S6 findings. If S8 finds regressions:
+1. Read the S8 findings to understand what regressed
+2. The document is flagged for manual review — resolve the regression manually
+3. S7 does NOT re-run. One attempt per document.
+
+### Permissions file missing S6/S7/S8 entries
+
+Re-run `audit-pipeline-setup` to regenerate, or add manually following the S2/S3/S4 patterns:
+- S6: same as S2 (auditor, read-only)
+- S7: same as S3 (creator, source material access)
+- S8: same as S4 (auditor, read-only)

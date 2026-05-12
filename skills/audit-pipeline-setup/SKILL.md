@@ -5,7 +5,7 @@ description: Set up a new AI-driven document audit pipeline for any document typ
 
 # Set Up a Staged Document Audit Pipeline
 
-Create a new AI-driven document audit pipeline for a document type. The core pipeline uses 5 stages (S1-S5) with two agent roles: a **creator** (S1, S3) that produces and rewrites documents in fresh context windows, and an **auditor** (S2, S4, S5) that reviews, confirms, and propagates governance learnings — also in fresh context windows. An optional **retroactive governance pass** (S6-S8) re-audits all documents against the final governance after the meta-audit, closing the quality gradient between early and late pipeline documents.
+Create a new AI-driven document audit pipeline for a document type. The core pipeline uses 5 stages (S1-S5) with two agent roles: a **creator** (S1, S3) that produces and rewrites documents in fresh context windows, and an **auditor** (S2, S4, S5) that reviews, confirms, and propagates governance learnings - also in fresh context windows. An optional **retroactive governance pass** (S6-S8) re-audits all documents against the final governance after the meta-audit, closing the quality gradient between early and late pipeline documents. The pipeline is not complete until the mandatory meta-audit runs, writes a durable report, and applies the agreed fixes before completion.
 
 ## When to use this skill
 

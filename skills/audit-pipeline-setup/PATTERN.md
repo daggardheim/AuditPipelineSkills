@@ -599,9 +599,9 @@ Suggested file convention:
 
 This step is why the meta-audit cannot be automated — two documents may disagree and both be internally correct. A human must decide which one wins.
 
-**Step 4: Apply fixes.** The AI applies the agreed fixes across all affected documents.
+**Step 4: Apply fixes.** The AI applies the agreed fixes across all affected documents. This is the implementation step, not just a reporting step.
 
-**Step 5: Update index.** Set `Meta-audit: done` in the index footer. The pipeline is now complete.
+**Step 5: Update index.** Set `Meta-audit: done` in the index footer. Before ending the meta-audit, confirm the durable report exists, the agreed fixes are applied, and the index footer is updated. The pipeline is then complete.
 
 The report file is the audit trail for the meta-audit itself. It is separate from `audit-log.jsonl`, which records per-stage execution.
 
@@ -647,7 +647,7 @@ The `audit-pipeline-run` skill checks this line. If all rows are S5-complete but
 
 ### Lessons from meta-audits
 
-The following findings emerged from real meta-audits. They all share a root cause: **per-document stages cannot see the document set**.
+The following findings emerged from real meta-audits. They all share a root cause: **per-document stages cannot see the document set**. The meta-audit should produce a durable report and then apply the agreed fixes before the workflow moves on.
 
 | Finding | Domain | Category | Root cause |
 |---------|--------|----------|------------|
@@ -656,6 +656,8 @@ The following findings emerged from real meta-audits. They all share a root caus
 | Provisional language in 6 of 13 docs | API specs | Terminology | S2 caught it in one doc but S5 didn't propagate the fix pattern |
 | Frontmatter status drift (12 docs out of date) | API specs | Frontmatter hygiene | Index says `done` but the orchestrator doesn't update frontmatter inside documents |
 | Related docs apply the same rule with different scope | API specs | Design decisions | Per-document auditor has no visibility into related docs' choices |
+
+| Auth error envelope wording differs between two docs | API specs | Shared pattern consistency | One doc used a warning fallback while the other hard-asserted the v3 envelope | Centralize the auth envelope contract and align both docs to the hard-asserted version |
 
 As more domains run meta-audits, add rows to this table — the pattern library grows with each use.
 
@@ -838,17 +840,17 @@ To see the pattern in action, examine:
 - `workflow/shared/_template.md` — the template with accumulated rules
 - `workflow/shared/_open-questions.md` — the question register (45+ entries across 4 categories)
 
-### Reference implementation 2: API migration specs (Shipment)
+### Reference implementation 2: API migration specs
 
-- **Repository:** `C:\Users\dag.gardheim\SpecialProjects\APIMigration`
-- **Domain:** v1/v2 → v3 endpoint migration specifications
-- **Scale:** 13 documents (Shipment resource group), all S1-S5 in one day
-- **Documents created by:** Claude Code (S1, S3)
-- **Documents audited by:** Claude Code (S2, S4, S5)
-- **Meta-audit:** Human + parallel AI agents (2026-05-11), found 9 findings (2 critical)
+- **Repository:** `<project-repo>`
+- **Domain:** v1/v2 -> v3 endpoint migration specifications
+- **Scale:** 10+ documents, all S1-S5 in one day
+- **Documents created by:** Creator agent
+- **Documents audited by:** Auditor agent
+- **Meta-audit:** Human + parallel AI agents, found cross-document drift that the per-document loop could not see
 - **Key meta-audit findings:**
-  - Error code inconsistency across 4 related specs (`SHIPMENT_NOT_MODIFIABLE` vs `SHIPMENT_STATUS_NOT_EDITABLE`)
-  - Resolved cross-cutting question (C1) not propagated to 11 of 13 specs
-  - Frontmatter status drift in 12 specs (index said `done`, specs said `in-progress`)
-  - Rate limit using provisional language in 6 specs (caught and fixed in one spec by S2, never propagated)
-- **Lesson:** The meta-audit is essential for API specs because consistency across the endpoint surface is a hard requirement — an SDK generator would produce different error types for the same scenario
+  - Error code inconsistency across related specs
+  - Resolved cross-cutting question not propagated to all specs
+  - Frontmatter status drift between index and documents
+  - Provisional language that never propagated after S5
+- **Lesson:** The meta-audit is essential for API specs because consistency across the endpoint surface is a hard requirement

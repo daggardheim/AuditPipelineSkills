@@ -2,6 +2,8 @@
 
 Claude Code skills for setting up and running staged document audit pipelines (S1-S5).
 
+Every pipeline includes a mandatory meta-audit after S1-S5. The meta-audit checks cross-document consistency, writes a durable report, applies the agreed fixes in the source documents, and only then marks the pipeline complete.
+
 ## Skills
 
 ### audit-pipeline-setup

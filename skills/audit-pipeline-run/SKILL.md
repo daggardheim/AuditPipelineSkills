@@ -8,10 +8,10 @@ description: Run or resume an existing staged document audit pipeline. Use when 
 Execute, monitor, or resume an existing pipeline, then complete the mandatory meta-audit and optional retroactive governance pass. The pipeline has up to three phases:
 
 1. **S1-S5 loop** (automated, non-interactive) — the orchestrator processes each row through S1→S2→S3→S4→S5
-2. **Meta-audit** (interactive, human + AI) — after all rows reach S5-complete, check cross-document consistency
+2. **Meta-audit** (interactive, human + AI) - after all rows reach S5-complete, check cross-document consistency, write a durable report, and apply the agreed fixes in the source docs
 3. **Retroactive governance pass** (S6-S8, automated) — re-audit all documents against final governance, rewrite those that fail
 
-The pipeline is **not complete** until the meta-audit passes (and the retroactive pass, if enabled). The index must show `Meta-audit: done` (and `Retroactive pass: done` if enabled).
+The pipeline is **not complete** until the meta-audit passes, the agreed fixes are applied, and the index shows `Meta-audit: done` (and `Retroactive pass: done` if enabled).
 
 This skill assumes the pipeline is already set up (use `audit-pipeline-setup` to create one).
 
@@ -165,7 +165,7 @@ If the pipeline is S5-complete and awaiting meta-audit, prompt the user: "All ro
 
 > **This step is required.** The pipeline is not complete without it. Do not skip.
 
-The meta-audit checks cross-document consistency — things the per-row S1-S5 loop cannot catch because it only sees one document at a time.
+The meta-audit checks cross-document consistency - things the per-row S1-S5 loop cannot catch because it only sees one document at a time. Its job is not just to report findings; once the user chooses a resolution, apply the agreed fixes in the owning documents before moving on.
 
 ### Prerequisites
 
@@ -204,16 +204,23 @@ The meta-audit checks cross-document consistency — things the per-row S1-S5 lo
 
 This is why the meta-audit cannot be automated — the AI identifies the problem, but the human decides which side of an inconsistency wins.
 
-**6f. Apply fixes.** Apply the agreed resolutions across all affected documents.
+**6f. Apply fixes.** Apply the agreed resolutions across all affected documents. If the findings are concrete and low-risk, do this immediately after the user chooses the resolution; do not branch to a different task first.
 
-**6g. Update the index and clean up.** Add or update the meta-audit line at the bottom of the index:
+**6g. Handoff checklist.** Before concluding the meta-audit, confirm all of the following:
+- Report written and saved in a durable location
+- Findings mapped to the owning documents
+- Agreed fixes applied in the source docs
+- Index footer updated
+- Signal file removed
+
+**6h. Update the index and clean up.** Add or update the meta-audit line at the bottom of the index:
 
 ```markdown
 ---
 Meta-audit: done (YYYY-MM-DD, N findings, N critical, all resolved)
 ```
 
-Then delete the signal file `tools/audit/meta-audit-pending.json` if it exists — the pipeline is now complete and the trigger is no longer needed.
+Then delete the signal file `tools/audit/meta-audit-pending.json` if it exists - the pipeline is now complete and the trigger is no longer needed.
 
 If you want an audit trail of the meta-audit itself, keep the report file alongside the index and audit log. The report is the human-readable review record; the index footer is the completion gate.
 
@@ -232,7 +239,11 @@ The retroactive governance pass re-audits all documents against the **final** go
 
 After the meta-audit completes, check whether the retroactive pass is enabled. If yes, prompt the user:
 
-> "Meta-audit complete. The retroactive governance pass (S6-S8) is enabled. This will re-audit all N documents against the final governance. Specs that pass S6 are skipped; those that fail get a quality lift rewrite (S7) and confirmation (S8). Start the retroactive pass?"
+Use this generic activation prompt:
+
+```text
+Meta-audit complete. The retroactive governance pass (S6-S8) is enabled. This will re-audit all N documents against the final governance. Documents that pass S6 are skipped; those that fail get a quality lift rewrite (S7) and confirmation (S8). Start the retroactive governance pass?
+```
 
 ### Procedure
 

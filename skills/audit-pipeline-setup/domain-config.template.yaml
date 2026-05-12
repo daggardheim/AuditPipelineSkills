@@ -153,6 +153,22 @@ s5_writable_files:
   - file: ""
     update_trigger: ""
 
+# ── Retroactive governance pass ──────────────────────────────
+# Optional post-meta-audit phase that re-audits all documents
+# against the FINAL governance (template + open-questions +
+# meta-audit resolutions). Closes the quality gradient between
+# early and late pipeline documents.
+
+retroactive_pass:
+  enabled: false                     # Set true to enable S6-S8 after the meta-audit
+  s6_audit_criteria:
+    structural_completeness: true    # Check every section the final template requires
+    resolved_questions: true         # Check all resolved open-questions are reflected
+    cross_cutting_standards: true    # Check error codes, terminology, formatting patterns
+    quality_baseline: true           # Compare depth of coverage to late-pipeline documents
+  s7_source_material_access: true    # Whether S7 can access source material (same as S3)
+  s8_regression_action: "manual"     # "manual" = flag for human review; no auto-loop
+
 # ── Checklist ─────────────────────────────────────────────────
 # Coverage checklist items for the quality self-check in each document.
 # These go into the template's coverage checklist section.

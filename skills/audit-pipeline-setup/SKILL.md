@@ -5,7 +5,7 @@ description: Set up a new AI-driven document audit pipeline for any document typ
 
 # Set Up a Staged Document Audit Pipeline
 
-Create a new 5-stage AI-driven document audit pipeline for a document type. The pipeline uses two agent roles: a **creator** (S1, S3) that produces and rewrites documents in fresh context windows, and an **auditor** (S2, S4, S5) that reviews, confirms, and propagates governance learnings — also in fresh context windows.
+Create a new AI-driven document audit pipeline for a document type. The core pipeline uses 5 stages (S1-S5) with two agent roles: a **creator** (S1, S3) that produces and rewrites documents in fresh context windows, and an **auditor** (S2, S4, S5) that reviews, confirms, and propagates governance learnings — also in fresh context windows. An optional **retroactive governance pass** (S6-S8) re-audits all documents against the final governance after the meta-audit, closing the quality gradient between early and late pipeline documents.
 
 ## When to use this skill
 
@@ -162,6 +162,7 @@ From the completed config, generate the actual files:
 | S1 prompt template (from creator config) | `_s1-prompt-template.md` |
 | Runner contract (standard) | `runner-contract.txt` |
 | `agents` + paths + `s5_writable_files` | `_agent-permissions.yaml` |
+| `retroactive_pass` (if enabled) | S6/S7/S8 entries in `_agent-permissions.yaml`, retroactive pass section in `_pipeline.md` |
 
 #### Generating `_agent-permissions.yaml`
 
@@ -171,18 +172,38 @@ Build the permissions file from the domain config:
 2. For each stage, set `allowed_tools`:
    - Read-only stages (S2, S4): `[Read, Glob]`
    - Write stages (S1, S3, S5): `[Read, Write, Edit, Glob]` by default; add `Grep` and `Bash` when the creator needs shell discovery or repository querying
+   - S6, S8 (retroactive audit/confirm): `[Read, Glob]` — same read-only restrictions as S2/S4
+   - S7 (quality lift rewrite): same tools as S3 (creator with source material access)
 3. For each stage, build `allowed_read` from:
    - The governance file paths (`template_file`, `question_register_file`, `example_prompt_file`, `index_file`) — based on which files that stage needs
    - `agents.creator.source_material_paths` — for S1 and S3 only
    - `agents.creator.reference_example` — for S1 and S3 only
+   - S6: all governance files + the document being audited
+   - S7: same as S3 (governance files + source material + document)
+   - S8: the document + S6 findings
 4. For each stage, build `allowed_write` from:
    - S1: `documents_dir/{document}`, `index_file`
    - S2, S4: `[]` (empty - tool-restricted)
    - S3: current document path, `index_file`
    - S5: `s5_writable_files` entries, `index_file`
+   - S6, S8: `[]` (empty — tool-restricted, same as S2/S4)
+   - S7: current document path, `index_file` (same as S3)
 5. Use `{document}` as placeholder in paths — the orchestrator replaces it at runtime.
 
 See the reference implementation at `reference/runbooks/_agent-permissions.yaml` for a complete example.
+
+### 7b. Configure retroactive governance pass (optional)
+
+If the user wants the retroactive governance pass:
+
+1. Set `retroactive_pass.enabled: true` in the domain config
+2. The S6 audit criteria default to checking all four dimensions (structural completeness, resolved questions, cross-cutting standards, quality baseline). Disable any that don't apply.
+3. S7 source material access defaults to `true` — same access as S3. This is recommended because quality lift often requires adding substantive content, not just formatting fixes.
+4. Generate S6/S7/S8 entries in `_agent-permissions.yaml` using the same patterns as S2/S3/S4
+5. Add the retroactive pass section to `_pipeline.md` with stage definitions and decision logic
+6. Add the retroactive governance pass tracking section to `index.md`
+
+If the user declines the retroactive pass, skip this step. The pipeline works without it — S6-S8 are purely additive.
 
 ### 8. Set up the orchestrator
 
@@ -212,6 +233,12 @@ Before running, verify:
 - S5 `allowed_write` matches the `s5_writable_files` entries in the domain config
 - Creator stages (S1, S3) include `source_material_paths` in their `allowed_read`
 - The `agents` section CLI commands match the agent choices from Step 4
+- If retroactive pass is enabled:
+  - `_agent-permissions.yaml` has entries for S6, S7, S8
+  - S6 and S8 have `allowed_write: []` and tool-restricted `allowed_tools`
+  - S7 has the same source material paths as S3
+  - `_pipeline.md` documents S6-S8 stage behavior and decision logic
+  - `index.md` has a retroactive governance pass tracking section template
 
 ## Anti-patterns to avoid
 

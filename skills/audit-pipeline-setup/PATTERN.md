@@ -57,8 +57,16 @@ read+write           tool-restricted  read+write       tool-restricted  read+wri
                            └─────────────────────────────────────────────┘
                                              │
                                              ▼
+                           ┌─────────────────────────────────────────────┐
+                           │  Retroactive governance pass (automated)    │
+                           │  S6: Conformance audit (all specs)          │
+                           │  S7: Quality lift rewrite (failed specs)    │
+                           │  S8: Confirmation audit (rewritten specs)   │
+                           └─────────────────────────────────────────────┘
+                                             │
+                                             ▼
                                    Pipeline complete
-                              (index: Meta-audit: done)
+                              (index: Retroactive pass: done)
 ```
 
 ### Stage contract
@@ -70,6 +78,9 @@ read+write           tool-restricted  read+write       tool-restricted  read+wri
 | S3 | Creator | Apply fixes for all valid S2 findings, verifying accuracy against source material | workspace-write | document, S2 findings, template, source material, reference example | document file | rewrite_occurred flag, updated doc hash |
 | S4 | Auditor | Narrow acceptance check on S3 changes only | tool-restricted | document, S3 notes | none | confirmation or new findings |
 | S5 | Auditor | Propagate recurring patterns to governance files | workspace-write | document, all governance files | template, question register | updated rules, new questions |
+| S6 | Auditor | Retroactive conformance audit against final governance | tool-restricted | document, final template, final open-questions, meta-audit resolutions | none | per-spec verdict (pass/fail) + findings list |
+| S7 | Creator | Quality lift rewrite for specs that failed S6 | workspace-write | document, S6 findings, final template, source material, reference example | document file | rewrite_occurred flag, updated doc hash |
+| S8 | Auditor | Confirmation audit on S7 rewrites | tool-restricted | document, S6 findings | none | confirmation or new findings |
 
 ### Key design decisions
 
@@ -141,7 +152,7 @@ Every stage invocation returns this exact JSON structure. The schema is at `tool
 | Field | Type | Purpose |
 |-------|------|---------|
 | `doc_path` | string | Relative path to the audited document |
-| `stage` | enum: S1, S2, S3, S4, S5 | Which stage produced this result |
+| `stage` | enum: S1, S2, S3, S4, S5, S6, S7, S8 | Which stage produced this result |
 | `quality_score` | integer 1-5 or null | Overall document quality (5 = ready to use, 1 = fundamentally broken) |
 | `findings` | integer >= 0 | Total findings in this stage |
 | `new_findings` | integer >= 0 | Findings not present in prior stages |
@@ -194,6 +205,32 @@ Every stage invocation returns this exact JSON structure. The schema is at `tool
 | `rewrite_occurred_any` | True if any stage edited the document — gates S5 spot-check behavior |
 | `blocked` / `blocked_reason` | Set when `decision = block`; requires human resolution before resuming |
 
+### Retroactive pass state
+
+When the retroactive governance pass is enabled, `loop-state.json` extends with:
+
+```json
+{
+  "retroactive_pass": {
+    "started": true,
+    "current_row": 3,
+    "current_stage": "S7",
+    "completed_rows": [1, 2],
+    "skipped_rows": [2],
+    "failed_rows": []
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `started` | Whether the retroactive pass has begun |
+| `current_row` | Which row is currently being processed |
+| `current_stage` | S6, S7, or S8 |
+| `completed_rows` | Rows that have finished the retroactive pass (passed S6, or completed S7+S8) |
+| `skipped_rows` | Rows that passed S6 and skipped S7/S8 |
+| `failed_rows` | Rows where S8 found regressions (flagged for manual review) |
+
 ### Index grid (`index.md`)
 
 The index is a Markdown table that tracks every document's stage status:
@@ -205,6 +242,19 @@ The index is a Markdown table that tracks every document's stage status:
 - Each S-column holds: `not-started`, `todo`, `in-progress`, `done`, or `blocked`
 - The orchestrator reads the grid to find the next eligible document
 - The orchestrator writes the grid to record stage transitions and completion times
+
+When the retroactive governance pass runs, a separate tracking section is added below the meta-audit line:
+
+```markdown
+## Retroactive Governance Pass
+
+| # | Item | S6 Verdict | S6 Findings | S7 Rewrite | S8 Confirm |
+|---|------|-----------|-------------|------------|------------|
+| 1 | 01-doc-name | fail | 3 | done | done |
+| 2 | 02-doc-name | pass | 0 | skipped | skipped |
+```
+
+S6 Verdict is `pass` or `fail`. S7 Rewrite and S8 Confirm are `done`, `skipped`, `in-progress`, or `blocked`.
 
 ---
 
@@ -529,7 +579,18 @@ Build a domain-specific checklist from these categories. The examples span multi
 
 **Step 1: AI analysis.** The AI reads all documents + governance files and checks the quality checklist. For large document sets (20+), use parallel agents — one per document group — then a single cross-document consistency pass.
 
-**Step 2: Findings report.** The AI produces a findings report with severity, affected documents, and a recommended resolution for each finding.
+**Step 2: Findings report.** The AI produces a findings report with severity, affected documents, and a recommended resolution for each finding. Keep this report as a durable artifact so the review can be inspected later, not just summarized in chat.
+
+Recommended report contents:
+- scope and timestamp
+- documents audited
+- checklist categories used
+- each finding with category, severity, affected documents, and exact inconsistent text
+- recommended resolution and final human decision
+
+Suggested file convention:
+- `tools/audit/meta-audit-report.md` for the human-readable report
+- `tools/audit/meta-audit-report.json` when the runner also emits structured data
 
 **Step 3: Human decisions.** The human reviews each finding and decides:
 - Accept the AI's recommendation
@@ -541,6 +602,8 @@ This step is why the meta-audit cannot be automated — two documents may disagr
 **Step 4: Apply fixes.** The AI applies the agreed fixes across all affected documents.
 
 **Step 5: Update index.** Set `Meta-audit: done` in the index footer. The pipeline is now complete.
+
+The report file is the audit trail for the meta-audit itself. It is separate from `audit-log.jsonl`, which records per-stage execution.
 
 ### Index gate
 
@@ -598,6 +661,77 @@ As more domains run meta-audits, add rows to this table — the pattern library 
 
 ---
 
+## Retroactive governance pass — closing the quality gradient
+
+> **This phase is optional but recommended.** Enable it in the domain config with `retroactive_pass.enabled: true`.
+
+The S1-S5 loop processes documents sequentially. Each row benefits from governance files refined by prior rows' S5 propagation. This creates a **quality gradient**: early documents are written against immature governance, while late documents benefit from the fully evolved template and open-questions.
+
+The meta-audit partially closes this gap by finding cross-cutting inconsistencies. The retroactive governance pass closes it systematically by re-auditing every document against the **final** governance.
+
+### Why the meta-audit alone is not enough
+
+| What the meta-audit catches | What it misses |
+|-----------------------------|----------------|
+| Cross-document inconsistencies (different terms for same concept) | Missing sections that the final template now requires |
+| Provisional language not standardized | Resolved open-questions not reflected in early documents |
+| Shared patterns applied differently | Quality depth gap (thin error catalogs, fewer examples in early docs) |
+
+The meta-audit finds what is visibly inconsistent. The retroactive pass finds what is structurally absent.
+
+### How it works
+
+```
+Meta-audit complete
+       │
+       ▼
+   ┌──────┐     pass     ┌──────────┐
+   │  S6  │─────────────►│  done    │
+   │audit │              └──────────┘
+   └──┬───┘
+      │ fail
+      ▼
+   ┌──────┐     ┌──────┐     ┌──────────┐
+   │  S7  │────►│  S8  │────►│  done    │
+   │write │     │confirm│     └──────────┘
+   └──────┘     └──┬───┘
+                   │ regressions
+                   ▼
+              ┌──────────┐
+              │  manual  │
+              │  review  │
+              └──────────┘
+```
+
+1. **S6 runs on all completed specs** — cheap, read-only conformance audit against final governance
+2. **Specs that pass S6 are done** — no further action needed
+3. **Specs that fail S6 get S7** — quality lift rewrite with source material access
+4. **S7 rewrites get S8** — confirmation audit, same pattern as S4 confirms S3
+5. **S8 regressions are flagged for manual review** — no infinite loops
+
+### S6 audit criteria
+
+S6 checks four dimensions:
+
+1. **Structural completeness** — Does the document have every section the final template requires?
+2. **Resolved questions** — Are all resolved open-questions reflected in the document?
+3. **Cross-cutting standards** — Do error codes, terminology, formatting patterns match the meta-audit-standardized versions?
+4. **Quality baseline** — Is the depth of coverage (error catalogs, examples, edge cases) comparable to late-pipeline documents of similar complexity?
+
+### No infinite loops
+
+S7 runs at most once per document. If S8 finds regressions, the document is flagged for manual review — not sent through another rewrite cycle. S7 operates with the most mature context possible; if it can't get it right in one pass, the issue needs human judgment.
+
+### Stage contract (S6-S8)
+
+| Stage | Agent role | Action | Sandbox | Reads | Writes | Key output |
+|-------|-----------|--------|---------|-------|--------|------------|
+| S6 | Auditor | Retroactive conformance audit against final governance | tool-restricted | document, final template, final open-questions | none | per-spec pass/fail + findings |
+| S7 | Creator | Quality lift rewrite addressing S6 findings | workspace-write | document, S6 findings, final template, source material, reference example | document file | rewrite_occurred flag |
+| S8 | Auditor | Confirmation audit on S7 rewrite | tool-restricted | document, S6 findings | none | confirmation or regressions |
+
+---
+
 ## Extending the pipeline
 
 ### Adding a stage to the loop
@@ -605,7 +739,7 @@ As more domains run meta-audits, add rows to this table — the pattern library 
 The per-row loop is not limited to S1-S5. To add a stage:
 
 1. Add the stage to `VALID_STAGES` in `audit_loop.py`
-2. Add the stage to the `stage` enum in `audit_stage_result.schema.json`
+2. Add the stage to the `stage` enum in `audit_stage_result.schema.json` (current values: S1-S8)
 3. Add a prompt objective in `_build_prompt()`
 4. Set the sandbox mode in the main loop
 5. Update the index grid columns

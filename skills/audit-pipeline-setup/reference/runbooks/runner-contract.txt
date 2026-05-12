@@ -29,10 +29,15 @@ The orchestrator reads `_agent-permissions.yaml` to determine the agent, tools, 
 | S3 | Creator (Claude) | claude -p "{prompt}" --output-format json --max-turns 10 --allowedTools Read,Write,Edit,Glob |
 | S4 | Auditor (Codex) | codex exec "{prompt}" --sandbox workspace-write |
 | S5 | Auditor (Codex) | codex exec "{prompt}" --sandbox workspace-write |
+| S6 | Auditor (Codex) | codex exec "{prompt}" --sandbox workspace-write |
+| S7 | Creator (Claude) | claude -p "{prompt}" --output-format json --max-turns 10 --allowedTools Read,Write,Edit,Glob |
+| S8 | Auditor (Codex) | codex exec "{prompt}" --sandbox workspace-write |
 
 For a Claude-only setup, replace the Codex commands with:
 - S2, S4: claude -p "{prompt}" --output-format json --max-turns 3 --allowedTools Read,Glob
 - S5: claude -p "{prompt}" --output-format json --max-turns 3 --allowedTools Read,Write,Edit,Glob
+- S6, S8: claude -p "{prompt}" --output-format json --max-turns 3 --allowedTools Read,Glob
+- S7: claude -p "{prompt}" --output-format json --max-turns 10 --allowedTools Read,Write,Edit,Glob
 
 ## Required behavior
 
@@ -88,3 +93,16 @@ If a stage fails (non-zero exit, no JSON output, timeout, or known transient lau
 ## Completion gate
 
 A row is complete when S5 passes the post-run validator. The validator confirms that the runbook file, index.md, and _open-questions.md are consistent before the row is closed and the next row in index order is unlocked.
+
+## Retroactive governance pass
+
+After the meta-audit completes, if the retroactive pass is enabled:
+
+1. Read the retroactive governance pass tracking section in the index.
+2. Find the first row where S6 Verdict = `not-started`.
+3. Launch auditor agent for S6 with the document + final governance files.
+4. If S6 passes: mark S7/S8 as `skipped`, move to next row.
+5. If S6 fails: launch creator agent for S7, then auditor agent for S8.
+6. If S8 finds regressions: mark row blocked, stop processing that row.
+7. Append S6/S7/S8 events to audit-log.jsonl.
+8. When all rows are processed: write `Retroactive pass: done` in the index footer.

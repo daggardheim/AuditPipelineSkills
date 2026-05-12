@@ -78,3 +78,43 @@ stages:
       - "runbooks/shared/_template.md"
       - "runbooks/shared/_open-questions.md"
       - "runbooks/index.md"
+
+  # ── Retroactive governance pass ──────────────────────────────
+
+  S6:
+    role: auditor
+    sandbox: workspace-write
+    allowed_tools: [Read, Glob]
+    allowed_read:
+      - "runbooks/drafts/{document}"
+      - "runbooks/index.md"
+      - "runbooks/shared/_template.md"
+      - "runbooks/shared/_open-questions.md"
+      - "runbooks/shared/_example-prompt.md"
+    allowed_write: []
+
+  S7:
+    role: creator
+    sandbox: workspace-write
+    allowed_tools: [Read, Write, Edit, Glob, Grep, Bash]
+    allowed_read:
+      - "runbooks/drafts/{document}"
+      - "runbooks/shared/_template.md"
+      - "runbooks/shared/_open-questions.md"
+      - "runbooks/completed/example-runbook.md"
+      - "src/operations/**/*.md"
+    allowed_write:
+      - "runbooks/drafts/{document}"
+      - "runbooks/index.md"
+
+  S8:
+    role: auditor
+    sandbox: workspace-write
+    allowed_tools: [Read, Glob]
+    allowed_read:
+      - "runbooks/drafts/{document}"
+      - "runbooks/index.md"
+      - "runbooks/shared/_template.md"
+      - "runbooks/shared/_open-questions.md"
+      - "runbooks/shared/_example-prompt.md"
+    allowed_write: []

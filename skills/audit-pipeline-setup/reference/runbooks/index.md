@@ -12,3 +12,16 @@
 | 3 | 03-dead-letter-queue-buildup | Dead letter queue depth exceeds threshold | done | in-progress | not-started | not-started | not-started | 2026-05-01T10:18+02:00 | | |
 | 4 | 04-certificate-expiry | TLS certificate expiring within 7 days | todo | not-started | not-started | not-started | not-started | | | |
 | 5 | 05-disk-usage-critical | Disk usage exceeds 90% on persistent volumes | not-started | not-started | not-started | not-started | not-started | | | |
+
+---
+Meta-audit: pending
+
+## Retroactive Governance Pass
+
+| # | Item | S6 Verdict | S6 Findings | S7 Rewrite | S8 Confirm |
+|---|------|-----------|-------------|------------|------------|
+| 1 | 01-high-api-latency | not-started | | not-started | not-started |
+| 2 | 02-database-connection-pool | not-started | | not-started | not-started |
+| 3 | 03-dead-letter-queue-buildup | — | | — | — |
+| 4 | 04-certificate-expiry | — | | — | — |
+| 5 | 05-disk-usage-critical | — | | — | — |

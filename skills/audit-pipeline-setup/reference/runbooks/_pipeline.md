@@ -11,6 +11,9 @@ This file defines the stage behavior for both the creator agent (S1, S3) and the
 | S3 | Creator | Rewrite the runbook to fix S2 findings, verifying facts against source material |
 | S4 | Auditor | Confirm only the changes from S3 (tool-restricted) |
 | S5 | Auditor | Propagate recurring patterns to shared governance files |
+| S6 | Auditor | Retroactive conformance audit — check the runbook against the final template (tool-restricted) |
+| S7 | Creator | Quality lift rewrite to fix S6 findings, verifying facts against source material |
+| S8 | Auditor | Confirm only the changes from S7 (tool-restricted) |
 
 ## Decision logic
 
@@ -101,3 +104,35 @@ Allowed files (write):
 S5 has two independent duties:
 1. **Runbook spot-check** - gated on `rewrite_occurred_any` (only if S3 changed the file)
 2. **Governance propagation** - always runs, regardless of prior rewrites. Check for quality rules that appeared in 3+ runbooks but aren't in the template.
+
+## Retroactive governance pass (S6-S8)
+
+After the meta-audit completes, the retroactive pass re-audits all documents against the final governance.
+
+### Decision logic (retroactive pass)
+
+1. Read the retroactive governance pass tracking section in `../index.md`.
+2. Scan rows top to bottom.
+3. Find the first row where S6 Verdict = `not-started` → launch auditor agent for S6.
+4. If S6 verdict is `pass` → mark S7 and S8 as `skipped`, move to next row.
+5. If S6 verdict is `fail` → launch creator agent for S7.
+6. After S7 completes → launch auditor agent for S8.
+7. If S8 finds regressions → mark row as `blocked`, flag for manual review.
+8. When all rows are processed → write `Retroactive pass: done` in the index footer.
+
+### File scope (S6-S8)
+
+### S6 (Auditor)
+
+Read: runbook file, template, open questions, example prompt, index
+Write: none
+
+### S7 (Creator)
+
+Read: runbook file, template, open questions, source material paths, reference example, S6 findings
+Write: runbook file, index
+
+### S8 (Auditor)
+
+Read: runbook file, S6 findings, index
+Write: none

@@ -1,6 +1,6 @@
 # Audit Pipeline Skills
 
-Claude Code skills for setting up and running staged document audit pipelines (S1-S5).
+Claude Code skills for setting up and running staged document audit pipelines: the S1-S5 loop, a mandatory meta-audit, and an optional S6-S8 retroactive governance pass.
 
 Every pipeline includes a mandatory meta-audit after S1-S5. The meta-audit checks cross-document consistency, writes a durable report, applies the agreed fixes in the source documents, and only then marks the pipeline complete.
 
@@ -12,7 +12,7 @@ Adaptive AI-assisted setup for a new audit pipeline. Explores the project, recom
 
 ### audit-pipeline-run
 
-Run, monitor, or resume an existing S1-S5 pipeline loop. Handles both document creation and auditing in a unified loop where each stage gets a fresh agent context window.
+Run, monitor, or resume an existing pipeline: the S1-S5 loop, the mandatory meta-audit, and the optional S6-S8 retroactive governance pass. Handles both document creation and auditing in a unified loop where each stage gets a fresh agent context window.
 
 ## Installation
 

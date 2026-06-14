@@ -23,6 +23,9 @@ runner_contract_file: "investigations/auditor/runner-contract.txt"
 
 agents:
   creator:
+    role_model:                        # Which model runs this role (model-assignment layer).
+      engine: "claude"                 # "claude" (native in Mode A/C, or CLI) | "codex" | other CLI vendor
+      tier: "opus"                     # Implement role favors the STRONGEST tier.
     cli: "claude"
     cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
     max_turns: 10
@@ -35,9 +38,14 @@ agents:
       - "Check db_schema_columns in knowledge.db before writing any SQL"
 
   auditor:
+    role_model:                        # Which model audits (model-assignment layer).
+      engine: "claude"                 # "claude" | "codex" | other CLI vendor.
+      tier: "sonnet"                   # NEVER haiku for judgment-bearing audit.
     cli: "claude"
     cli_command: 'claude -p "{prompt}" --output-format json --max-turns 3'
     max_turns: 3
+
+default_execution_mode: "C"          # "A" | "B" | "C" — hybrid (native ergonomics + independent auditor).
 
 audit_role: "problem case investigation auditor"
 optimization_target: "safe remediation"

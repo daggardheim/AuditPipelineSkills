@@ -9,9 +9,17 @@ agents:
   creator:
     cli: claude
     cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
+    role_model: { engine: claude, tier: opus }
   auditor:
     cli: codex
     cli_command: 'codex exec "{prompt}"'
+    role_model: { engine: codex, tier: "" }
+  # Recorder: Mode A/C only. Persists structured stage results to the reporting
+  # artifacts. Write-scoped to tools/audit/** and the index — NEVER the document.
+  recorder:
+    cli: claude
+    cli_command: 'claude -p "{prompt}" --output-format json --max-turns 3'
+    role_model: { engine: claude, tier: haiku }
 
 stages:
   S1:
@@ -118,3 +126,17 @@ stages:
       - "runbooks/shared/_open-questions.md"
       - "runbooks/shared/_example-prompt.md"
     allowed_write: []
+
+  # ── Reporting recorder (Mode A/C only) ───────────────────────
+  REC:
+    role: recorder
+    sandbox: workspace-write
+    allowed_tools: [Read, Write, Edit, Glob]
+    allowed_read:
+      - "runbooks/index.md"
+      - "tools/audit/loop-state.json"
+      - "tools/audit/audit-log.jsonl"
+    allowed_write:
+      - "tools/audit/audit-log.jsonl"
+      - "tools/audit/loop-state.json"
+      - "runbooks/index.md"

@@ -19,6 +19,9 @@ runner_contract_file: "docs/auditor/runner-contract.txt"
 
 agents:
   creator:
+    role_model:                        # Which model runs this role (model-assignment layer).
+      engine: "claude"                 # "claude" (native in Mode A/C, or CLI) | "codex" | other CLI vendor
+      tier: "opus"                     # Implement role favors the STRONGEST tier.
     cli: "claude"
     cli_command: 'claude -p "{prompt}" --output-format json --max-turns 10'
     max_turns: 10
@@ -32,9 +35,14 @@ agents:
       - "Check for breaking changes compared to the previous API version"
 
   auditor:
+    role_model:                        # Which model audits (model-assignment layer).
+      engine: "codex"                  # Cross-vendor — factual accuracy critical here.
+      tier: ""                         # Codex does not use Claude tiers.
     cli: "claude"
     cli_command: 'claude -p "{prompt}" --output-format json --max-turns 3'
     max_turns: 3
+
+default_execution_mode: "B"          # "A" | "B" | "C" — cross-vendor audit throughout.
 
 audit_role: "API specification reviewer"
 optimization_target: "client SDK generation"

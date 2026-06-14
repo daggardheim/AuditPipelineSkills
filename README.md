@@ -14,6 +14,18 @@ Adaptive AI-assisted setup for a new audit pipeline. Explores the project, recom
 
 Run, monitor, or resume an existing pipeline: the S1-S5 loop, the mandatory meta-audit, and the optional S6-S8 retroactive governance pass. Handles both document creation and auditing in a unified loop where each stage gets a fresh agent context window.
 
+## Execution modes
+
+The pipeline runs on one of three engines, chosen at run time via an AI value review and **locked for the whole run**:
+
+| Mode | Engine | Model diversity | Headless | Best for |
+|------|--------|-----------------|----------|----------|
+| **A** | native `Workflow` (in-process Claude) | role/context/tier | no | fast interactive runs, most domains |
+| **B** | `audit_loop.py` (CLI) | full cross-vendor (Claude + Codex) | yes | high-stakes / unattended / a second model family throughout |
+| **C** | `Workflow` + cross-vendor audit | cross-vendor on the audit stage only | no | A's ergonomics + an independent auditor (experimental audit hop) |
+
+A model-assignment layer (`role_model` per role, optional `stage_model_overrides`) sets which model runs each role — spend cross-vendor diversity on the audit role; never audit with haiku. All three modes write the **same durable reports** (`audit-log.jsonl`, `loop-state.json`, the index grid + footers, the meta-audit report), so runs are comparable line-for-line. See `skills/audit-pipeline-setup/PATTERN.md` for the full architecture.
+
 ## Installation
 
 Copy the `skills/` folder into your `.claude/skills/` directory:
@@ -46,6 +58,7 @@ A complete set of generated output files for the **runbooks** domain is included
 | `_s1-prompt-template.md` | How the orchestrator assembles the S1/S3 creator prompt |
 | `runner-contract.txt` | Execution contract for the orchestrator |
 | `_agent-permissions.yaml` | Per-stage tool restrictions and file scope for Claude and Codex agents |
+| `audit-workflow.js` | The Mode A reference engine — native `Workflow` script (S1–S5 + recorder) |
 | `index.md` | Document tracking grid with example rows |
 
 Browse these files to understand what a fully set up pipeline looks like before running the setup skill on your own project.

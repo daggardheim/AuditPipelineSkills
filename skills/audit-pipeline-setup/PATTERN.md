@@ -258,6 +258,107 @@ S6 Verdict is `pass` or `fail`. S7 Rewrite and S8 Confirm are `done`, `skipped`,
 
 ---
 
+## Native capability mapping
+
+Claude Code now provides native primitives for much of what the Python
+orchestrator does by hand. The pipeline can run on either.
+
+| Hand-rolled (`audit_loop.py`) | Native (Mode A/C) |
+|---|---|
+| Stage-progression loop | `Workflow` tool `pipeline()` |
+| Shell `claude -p` / `codex exec` per stage | `agent()` call |
+| "Fresh context per stage" | every `agent()` is fresh context by default |
+| `audit_stage_result.schema.json` + manual parse | `agent(prompt, {schema})` validated, auto-retried |
+| `_agent-permissions.yaml` read-only audit stages | `agentType: 'Explore'` (read-only by construction) |
+| Transient-launch retry (WinError 206/1907) | in-process agents — those CLI failures don't exist |
+| "Windows prompt too long" budgeting | no CLI cmdline limit in-process |
+| `loop-state.json` resume | `Workflow({scriptPath, resumeFromRunId})` |
+| "one doc at a time; parallel needs locks" | `parallel()`/`pipeline()` concurrent, safe-capped |
+| Manual token logging | `budget` (spent/remaining) |
+| Meta-audit free-text decisions | `AskUserQuestion` structured choices |
+
+Caveat: the `Workflow`/`Agent` model override is Claude-family only
+(`opus|sonnet|haiku|fable`). True cross-vendor (Codex/GPT) needs the CLI path
+(Mode B) or an agent shelling out (Mode C audit hop).
+
+## Execution modes
+
+The pipeline runs on one of three engines. The engine is chosen at run time via
+an AI value review and **locked for the whole run** (see "Consistency lock").
+
+| | A. Workflow-native | B. CLI cross-vendor | C. Hybrid |
+|---|---|---|---|
+| Engine | native `Workflow` script | `audit_loop.py` | `Workflow` + cross-vendor audit |
+| Creator | Claude (in-process) | Claude (CLI) | Claude (in-process) |
+| Auditor | Claude (in-process) | Codex (CLI) | different vendor (CLI hop) |
+| Diversity source | role/context/tier | full cross-vendor | cross-vendor on audit only |
+| Headless / scheduled | no | yes | no |
+| Resume / structured output | native | hand-rolled | native (except audit hop) |
+| OS-level sandbox audit | no | yes | yes (on audit) |
+| Windows CLI brittleness | none | all stages | audit hop only |
+| Status | proven | proven (54-doc run) | experimental audit hop |
+
+### Model-assignment layer
+
+Stages and roles are unchanged. Each role (and optionally each stage) gets an
+explicit model assignment in the domain config and `_agent-permissions.yaml`:
+
+```yaml
+agents:
+  creator: { role_model: { engine: claude, tier: opus } }   # implement: strongest tier
+  auditor: { role_model: { engine: claude, tier: sonnet } }  # audit: capable, not haiku
+stage_model_overrides:
+  S5: { engine: claude, tier: opus }                         # propagation is hard
+```
+
+Rules:
+- **Never assign the auditor to haiku** for judgment-bearing audit (mechanical
+  conformance checks only).
+- The implement role favors model **tier** over vendor diversity.
+- Spend cross-vendor diversity on the **audit** role, where different blind spots
+  pay off most.
+
+### Consistency lock
+
+The chosen engine is recorded in `loop-state.json` and used for the **entire
+pipeline lifetime** — S1–S5 and the retroactive S6–S8. Switching engine
+mid-process is forbidden: it breaks audit-standard consistency (severity
+calibration, finding signatures, and `findings_resolved` only work if the same
+auditor applies the same yardstick across stages, and S6 must match the original
+audit calibration). The only way to change engine is a deliberate fresh full run.
+The meta-audit is the one engine-agnostic phase — it is human-driven analysis, not
+an engine.
+
+### Choosing a mode (value review)
+
+Before a run, investigate the document set and score each mode High/Medium/Low
+value for *this set*:
+
+- **Mode B / full cross-vendor — High** when: high-stakes / compliance /
+  external-facing docs; factual accuracy critical; same-model audits distrusted;
+  headless/unattended runs; OS-level sandbox wanted.
+- **Mode A / native — High** when: fast interactive iteration; native
+  resume/structured output/live progress wanted; setup simplicity; moderate
+  stakes; smaller sets; cost-sensitive.
+- **Mode C / hybrid — High** when: want A's ergonomics *and* an independent
+  auditor; medium-high stakes; willing to accept the experimental audit hop.
+
+### Common reporting contract (mode-independent)
+
+Every mode writes the same durable artifacts in the same format:
+
+- `tools/audit/audit-log.jsonl` — one JSON line per stage
+- `tools/audit/loop-state.json` — per-document state + the engine lock
+- `index.md` — grid + meta-audit footer + retroactive footer
+- `tools/audit/meta-audit-report.md` (+ `.json`)
+- per-run snapshot — Mode B keeps `runs/<id>/`; Modes A/C reuse the workflow
+  transcript dir and reference it from the log
+
+In Mode B the Python orchestrator writes these directly. In Modes A/C a
+write-scoped **recorder agent** writes them (the Workflow script has no
+filesystem access of its own). Format is identical, so runs are comparable
+line-for-line across engines.
+
 ## The process/policy separation
 
 This is the core insight that makes the pipeline reusable.

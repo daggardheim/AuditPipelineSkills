@@ -68,6 +68,24 @@ Before you run or resume a pipeline, confirm:
 - The meta-audit is complete before any retroactive pass starts
 - There is no manual spot-check mode in the process
 
+## Step 1b — Select and lock the execution mode
+
+Before running any stage, choose the engine. This happens once per run and is then locked.
+
+1. **Check for an existing lock.** Read `tools/audit/loop-state.json`. If it has `"engine": "A" | "B" | "C"`, the mode is already locked — use it and skip to status. **Never switch engines mid-run** (it breaks audit-standard consistency — see PATTERN.md "Consistency lock").
+2. **If no lock exists, investigate the set.** Assess: stakes (customer-facing? compliance? financial?), factual-accuracy sensitivity, document count, whether headless/unattended runs are needed, and how much a second model family would add.
+3. **Present a value review.** Score each mode High/Medium/Low for *this set* with one-line reasoning. Example:
+   - Mode A (native Claude): Medium — fast, but same-model audit shares blind spots.
+   - Mode B (CLI cross-vendor): High — external API specs; a different model catches factual drift; can run headless.
+   - Mode C (hybrid): Medium — native ergonomics + independent auditor, but the audit hop is experimental.
+4. **Ask the user to choose** with `AskUserQuestion` (recommendation first).
+5. **Lock it.** Write `"engine"` into `loop-state.json`. All stages this run — S1–S5 and retroactive S6–S8 — use it.
+
+Then run the chosen engine:
+- **Mode A** → `Workflow({scriptPath: "tools/audit-workflow.js", args})` where `args` is built from `index.md` + the domain config (rows, paths, models). Auditor stages run as read-only `Explore` agents; the recorder agent writes the reporting artifacts.
+- **Mode B** → the Python orchestrator: `python tools/audit_loop.py run` (Steps 2–5 below).
+- **Mode C** → the Mode A workflow with the audit stage dispatched to the configured cross-vendor auditor (experimental).
+
 ## Step 2 — Check status
 
 Run the orchestrator's status command:
@@ -86,7 +104,7 @@ If the user wants more detail, read `tools/audit/loop-state.json` directly and s
 
 ## Step 3 — Run or resume
 
-### Start/resume the loop
+### Start/resume the loop (Mode B — Python orchestrator)
 
 ```
 python tools/audit_loop.py run
@@ -141,6 +159,8 @@ To unblock:
 If the visible index row should reflect that the work is still open, use `needs-review` rather than `blocked`.
 
 ## Step 5 — Review results and check meta-audit readiness
+
+> **Reporting is mode-independent.** Whichever engine ran, the durable artifacts are identical: `audit-log.jsonl`, `loop-state.json`, the `index.md` grid + footers, and the meta-audit report. In Mode A/C the recorder agent wrote them; in Mode B the Python orchestrator did. The analysis below applies to all modes. Modes A/C also expose a live `/workflows` progress tree during the run (a bonus, not part of the contract).
 
 After a run completes, review the outcomes and check whether the meta-audit can start:
 
@@ -231,12 +251,12 @@ Treat S6-S8 as a second deterministic loop in the same family as S1-S5: it proce
 - What the inconsistency is (quote the exact text that differs)
 - Recommended resolution
 
-**6e. Get human decisions.** For each finding, the user decides:
-- Accept the recommendation
-- Choose a different resolution
+**6e. Get human decisions.** Present each finding with `AskUserQuestion` as a structured choice:
+- Accept the recommendation (first option)
+- Choose the other side of the inconsistency
 - Dismiss as intentional
 
-This is why the meta-audit cannot be automated — the AI identifies the problem, but the human decides which side of an inconsistency wins.
+Batch related findings into one `AskUserQuestion` call where possible (up to 4 questions per call). This is why the meta-audit cannot be automated — the AI identifies the problem, but the human decides which side of an inconsistency wins. The structured answers become the resolution record applied in 6f.
 
 **6f. Apply fixes.** Apply the agreed resolutions across all affected documents. If the findings are concrete and low-risk, do this immediately after the user chooses the resolution; do not branch to a different task first.
 
@@ -405,14 +425,14 @@ The creator agent is spending too many turns on source material.
 - Add scoping hints in `role_additions` (e.g., "focus on the OrderEntry class, ignore test files").
 - Reduce `--max-turns` if the agent is exploring too broadly.
 
-### Windows prompt too long
+### Windows prompt too long (Mode B only)
 
 If the agent fails with a Windows command-line length error (`WinError 206`), the prompt is too large for the CLI invocation.
 - Preload fewer explicit files.
 - Keep external source trees path-based instead of embedding their full contents.
 - Omit raw binary inputs from the prompt and summarize them as path references.
 
-### Transient launch errors
+### Transient launch errors (Mode B only)
 
 Some launches fail before the model starts, especially on Windows. The runner now retries known transient launch errors quietly up to 3 times, including:
 - `CreateProcessWithLogonW failed: 1907`
@@ -421,7 +441,9 @@ Some launches fail before the model starts, especially on Windows. The runner no
 
 If the error disappears on retry, treat it as noise. Only investigate further if the failure persists after retries or the stage blocks on a real permission or content issue.
 
-### Agent command not found
+### Agent command not found (Mode B only)
+
+> Modes A and C run agents in-process, so the Windows CLI failure modes above (transient launch errors, prompt-length limits, missing CLI) do not occur there. If you hit these in Mode A/C, you are actually invoking the Mode B Python path — check the engine lock in `loop-state.json`.
 
 The orchestrator invokes the configured agent CLI. If the command fails:
 - **Claude**: Ensure Claude Code CLI is installed and `claude` is on PATH

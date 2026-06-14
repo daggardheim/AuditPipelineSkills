@@ -7,6 +7,8 @@ description: Set up a new AI-driven document audit pipeline for any document typ
 
 Create a new AI-driven document audit pipeline for a document type. The core pipeline uses 5 stages (S1-S5) with two agent roles: a **creator** (S1, S3) that produces and rewrites documents in fresh context windows, and an **auditor** (S2, S4, S5) that reviews, confirms, and propagates governance learnings - also in fresh context windows. An optional **retroactive governance pass** (S6-S8) re-audits all documents against the final governance after the meta-audit, closing the quality gradient between early and late pipeline documents. The pipeline is orchestrator-driven end to end; there is no separate spot-check mode. The pipeline is not complete until the mandatory meta-audit runs, writes a durable report, and applies the agreed fixes before completion.
 
+This setup is **engine-agnostic**: it generates shared governance assets plus a model-assignment layer that work with all three execution modes (A native `Workflow`, B CLI cross-vendor, C hybrid). The engine is chosen later, at run time, by `audit-pipeline-run` — and locked for the whole run. See PATTERN.md "Execution modes". Setup generates the Mode A reference workflow script alongside the Python-orchestrator assets so the user can pick either engine without redoing setup.
+
 ## When to use this skill
 
 - You have 10+ structured documents that should follow the same quality rules
@@ -108,6 +110,13 @@ Present the default role definitions, then ask if they match the project:
 
 Ask: **"Does this match your project, or would you add anything to either role?"**
 
+**Then assign a model to each role (model-assignment layer).** Set `role_model` for creator and auditor in the domain config:
+- Creator (implement): favor the strongest tier — default `{ engine: claude, tier: opus }`. Tier matters more than vendor here.
+- Auditor (audit): default `{ engine: claude, tier: sonnet }`. Spend cross-vendor diversity here if anywhere (`{ engine: codex }`). **Never assign the auditor to haiku** for judgment-bearing audit.
+- Optional `stage_model_overrides` for specific stages (e.g. S5 propagation → opus).
+
+This is independent of the execution mode: the same assignments inform Mode A (Claude tiers in-process), Mode B (CLI per role), and Mode C (in-process create + cross-vendor audit).
+
 Users can add responsibilities (e.g., "the creator should also check Confluence for prior art"). They cannot remove core stage mechanics or reorder stages — the 5-stage sequence is non-negotiable architecture.
 
 ### 4. Select agents
@@ -175,6 +184,7 @@ From the completed config, generate the actual files:
 | S1 prompt template (from creator config) | `_s1-prompt-template.md` |
 | Runner contract (standard) | `runner-contract.txt` |
 | `agents` + paths + `s5_writable_files` | `_agent-permissions.yaml` |
+| `agents.*.role_model` + paths (Mode A) | `audit-workflow.js` (the Mode A engine) |
 | `retroactive_pass` (if enabled) | S6/S7/S8 entries in `_agent-permissions.yaml`, retroactive pass section in `_pipeline.md` |
 
 #### Generating `_agent-permissions.yaml`
@@ -219,6 +229,18 @@ If the user wants the retroactive governance pass:
 
 If the user declines the retroactive pass, skip this step. The pipeline works without it — S6-S8 are purely additive.
 
+### 7c. Generate the Mode A workflow script
+
+Copy `reference/runbooks/audit-workflow.js` into the project's `tools/` folder and adapt it from the config:
+
+1. It reads everything from `args` (rows, paths, models) — no path constants to edit in the script body.
+2. The run skill passes `args` built from `index.md` + the domain config at launch.
+3. Confirm the `STAGE_SCHEMA` matches `audit_stage_result.schema.json`.
+4. Confirm auditor stages use `agentType: 'Explore'` (read-only) and create/rewrite/propagate stages use a writing agent.
+5. Confirm the `record()` helper writes only to `tools/audit/**` and the index — never the document.
+
+This script is the Mode A engine. Mode B uses `audit_loop.py` (next step). Mode C reuses this script but swaps the S2/S4 audit `agent()` call for a cross-vendor hop (see PATTERN.md, experimental).
+
 ### 8. Set up the orchestrator
 
 Copy `tools/audit_loop.py` and `tools/audit_stage_result.schema.json` from the reference implementation. If retroactive governance is enabled, create a separate `tools/retroactive_audit_loop.py` from the same orchestration pattern rather than folding S6-S8 into the primary loop. Update:
@@ -247,6 +269,10 @@ Before running, verify:
 - S5 `allowed_write` matches the `s5_writable_files` entries in the domain config
 - Creator stages (S1, S3) include `source_material_paths` in their `allowed_read`
 - The `agents` section CLI commands match the agent choices from Step 4
+- Each role has a `role_model` (engine + tier); the auditor is NOT haiku
+- `default_execution_mode` is set in the domain config
+- `audit-workflow.js` exists, passes `node --check`, and its auditor stages use `agentType: 'Explore'`
+- The recorder scope in `_agent-permissions.yaml` (`REC` stage) writes only `tools/audit/**` and the index
 - If retroactive pass is enabled:
   - `_agent-permissions.yaml` has entries for S6, S7, S8
   - S6 and S8 have `allowed_write: []` and tool-restricted `allowed_tools`
